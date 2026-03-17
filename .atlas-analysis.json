@@ -1,0 +1,108 @@
+{
+  "projectType": "saas",
+  "projectName": "Ubik",
+  "projectDescription": "Ubik is a progressive web app for motel booking and management, connecting motel owners and clients through an intuitive platform with maps, reservations, and secure payments.",
+  "theme": "almond",
+  "primaryColor": "#e30d0d",
+  "lightColor": "#b81d1d",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "installation"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/user-roles",
+              "concepts/authentication"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/explore-motels",
+              "features/reservations",
+              "features/payments",
+              "features/maps",
+              "features/owner-dashboard",
+              "features/admin-dashboard"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/owner-guide",
+              "guides/client-guide",
+              "guides/motel-management",
+              "guides/room-management"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api/overview"]
+          },
+          {
+            "group": "Authentication",
+            "pages": ["api/auth"]
+          },
+          {
+            "group": "Motels",
+            "pages": ["api/motels"]
+          },
+          {
+            "group": "Rooms",
+            "pages": ["api/rooms"]
+          },
+          {
+            "group": "Reservations",
+            "pages": ["api/reservations"]
+          },
+          {
+            "group": "Payments",
+            "pages": ["api/payments"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Motel search and discovery with interactive maps (Leaflet)",
+    "Online room reservations with check-in/check-out date selection",
+    "Stripe-powered secure payment processing",
+    "Multi-role authentication: Admin, Owner, and Client",
+    "Owner dashboard for managing motels, rooms, and offers",
+    "Admin dashboard for platform oversight and motel approval workflows",
+    "Geolocation support for finding nearby motels",
+    "Progressive Web App (PWA) with mobile-first design",
+    "Cloudinary integration for motel and room image management",
+    "Server-Side Rendering (SSR) with Angular Universal"
+  ],
+  "publicApiSurface": [
+    "GET /api/motels — List all approved motels",
+    "GET /api/motels/:id — Get motel details",
+    "POST /api/motels — Create a new motel (owner)",
+    "PUT /api/motels/:id — Update motel info (owner)",
+    "DELETE /api/motels/:id — Delete a motel (owner)",
+    "GET /api/auth/motels/my-motels — Get owner's motels",
+    "GET /api/rooms — List rooms for a motel",
+    "POST /api/rooms — Create a room (owner)",
+    "POST /api/reservations — Create a reservation",
+    "POST /api/payments/create-intent — Create Stripe payment intent",
+    "GET /api/payments/config — Get Stripe publishable key",
+    "GET /auth/me — Get current authenticated user",
+    "POST /auth/login — Authenticate user",
+    "POST /auth/register — Register new user",
+    "POST /api/images/upload — Upload image to Cloudinary"
+  ]
+}
