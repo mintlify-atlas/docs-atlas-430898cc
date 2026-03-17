@@ -1,0 +1,184 @@
+---
+title: "Motel Management"
+description: "How to create, configure, manage images, and understand the approval workflow for your motel on Ubik."
+---
+
+This page covers everything related to managing a motel listing on Ubik — from initial creation and legal documentation to images, approval, and editing.
+
+<Note>
+  You must have an **owner account** (roleId 2) to create and manage motels. If you registered as a guest, you cannot access the property dashboard. See the [Owner Guide](/guides/owner-guide) for account setup.
+</Note>
+
+## Creating a motel
+
+Navigate to your owner dashboard and click **Create Motel** (route: `/create-motel`). The form is divided into five sections.
+
+### Basic details
+
+| Field | Required | Constraints |
+|---|---|---|
+| `name` | Yes | Minimum 3 characters |
+| `address` | Yes | Full street address |
+| `city` | Yes | City where the motel is located |
+| `phoneNumber` | No | Contact number for the property |
+| `description` | No | Shown to guests on the listing page |
+
+### Location
+
+Ubik uses browser geolocation to populate coordinates automatically:
+
+<Steps>
+  <Step title="Click 'Obtener ubicación actual'">
+    The browser requests permission to access your location. Accept the prompt.
+  </Step>
+  <Step title="Wait for confirmation">
+    The status bar shows `Ubicación lista: [lat], [lng]` once coordinates are captured. The latitude and longitude fields are filled automatically.
+  </Step>
+  <Step title="Manual override (optional)">
+    You can type coordinates directly into the **Latitud** and **Longitud** fields if geolocation fails or you want to set a specific map pin position.
+  </Step>
+</Steps>
+
+<Warning>
+  If location permission is denied, you will see `Permiso de ubicación denegado`. You must enter coordinates manually or allow location access in your browser settings and try again.
+</Warning>
+
+### Images
+
+Motel images are uploaded to **Cloudinary** and stored as URLs. The platform stores two image roles:
+
+```typescript
+export interface MotelImage {
+  id: number;
+  url: string;
+  role: 'GALLERY' | 'COVER' | string;
+  sortOrder: number;
+}
+```
+
+<Tabs>
+  <Tab title="Cover / Profile photo">
+    - **Required** — the form blocks submission without it
+    - Shown as the primary image in search results and the motel card
+    - Upload via the **Subir foto de perfil** file input (accepts `image/*`)
+    - Uploaded to the `motels/profile` Cloudinary folder
+  </Tab>
+  <Tab title="Gallery images">
+    - Optional — select multiple images at once
+    - Displayed in the motel's photo gallery
+    - Uploaded to the `motels/gallery` Cloudinary folder
+    - Click **Limpiar** to reset the selection before uploading
+    - Remove individual images before submission using the **Quitar** button next to each filename
+  </Tab>
+</Tabs>
+
+### Legal documents
+
+Two legal documents are **mandatory** before the form can be submitted:
+
+<CardGroup cols={2}>
+  <Card title="RNT" icon="certificate">
+    **Registro Nacional de Turismo** — issued by the Colombian Tourism Ministry / Confecámaras. Upload as an image file (jpg/png/webp). Stored in Cloudinary under `motels/legal`.
+  </Card>
+  <Card title="RUES" icon="file-contract">
+    **Registro Único Empresarial y Social** — issued by Confecámaras. Upload as an image file. Stored in Cloudinary under `motels/legal`.
+  </Card>
+</CardGroup>
+
+An optional **Legal document** field also accepts image files and PDFs for additional ownership documentation (e.g. a power of attorney or company incorporation certificate).
+
+### Owner / legal representative information
+
+| Field | Required | Notes |
+|---|---|---|
+| `ownerDocumentType` | Yes | `CC`, `NIT`, `CE`, or `PASAPORTE` |
+| `ownerDocumentNumber` | Yes | ID or tax number |
+| `ownerFullName` | Yes | Full legal name of the property owner |
+| `legalRepresentativeName` | No | Required if the establishment is operated by a company |
+
+<Tip>
+  The `hasCompleteLegalInfo` flag is set automatically by the backend when RNT, RUES, `ownerDocumentType`, `ownerDocumentNumber`, and `ownerFullName` are all present. Admins rely on this flag to prioritise complete applications during review.
+</Tip>
+
+## The full `Motel` type
+
+This is the canonical motel object returned by the Ubik API:
+
+```typescript
+export interface Motel {
+  id: number;
+  name: string;
+  address: string;
+  phoneNumber: string;
+  description: string | null;
+  city: string;
+  propertyId: number;              // ID of the owner user
+  dateCreated: string;
+  imageUrls: MotelImage[];         // Cover + gallery images
+  latitude: number | null;
+  longitude: number | null;
+  approvalStatus: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+  approvalDate: string | null;
+  approvedByUserId: number | null;
+  rejectionReason: string | null;
+  rues: string | null;             // Cloudinary URL
+  rnt: string | null;              // Cloudinary URL
+  ownerDocumentType: string;       // 'CC' | 'NIT' | 'CE' | 'PASAPORTE'
+  ownerDocumentNumber: string;
+  ownerFullName: string;
+  legalRepresentativeName: string;
+  legalDocumentUrl: string | null; // Cloudinary URL (optional)
+  hasCompleteLegalInfo: boolean;
+  rooms?: Room[];                  // Populated when fetching with rooms
+}
+```
+
+## Approval workflow
+
+Every motel submission passes through a four-stage lifecycle:
+
+```
+PENDING → UNDER_REVIEW → APPROVED
+                      ↘ REJECTED
+```
+
+| Status | What it means | What to do |
+|---|---|---|
+| `PENDING` | Your application has been submitted and is queued for review | No action needed — wait for a status update |
+| `UNDER_REVIEW` | An Ubik admin is actively reviewing your documents | No action needed |
+| `APPROVED` | Your motel is live and visible to all guests | Start adding rooms |
+| `REJECTED` | Application declined | Read the `rejectionReason` field and resubmit with corrected information |
+
+<Note>
+  Only `APPROVED` motels are returned by the public `/motels` endpoint used in the Explore page. Guests cannot see your listing until approval is granted.
+</Note>
+
+## Editing motel details
+
+From your owner dashboard, select a motel and click **Edit**. You can update any field that was set during creation.
+
+The platform sends a `PUT /motels/:id` request with the updated fields. Only fields included in the request body are changed — other fields remain untouched.
+
+<Warning>
+  Editing a motel that is already `APPROVED` does **not** automatically reset it to `PENDING`. However, if you update legal documents (RNT/RUES), the admin team may re-review the listing. Contact support if you need to trigger a full re-review after a major edit.
+</Warning>
+
+## Managing images after creation
+
+Once your motel exists, you can manage images independently without editing the full form:
+
+| Action | Description |
+|---|---|
+| Set cover image | Updates the `COVER` image via `PUT /motels/:id/images/cover` |
+| Set profile image | Updates the profile picture via `PUT /motels/:id/images/profile` |
+| Add gallery images | Upload additional images via `POST /motels/:id/images` |
+| Delete image by ID | Remove a specific image via `DELETE /motels/:id/images/:imageId` |
+| Delete images by URL | Bulk remove images by passing an array of URLs to `DELETE /motels/:id/images` |
+
+## Deleting a motel
+
+From your dashboard, select the motel and click **Delete**. This action sends `DELETE /motels/:id` and is **permanent** — all associated rooms, images, and reservation history will be removed.
+
+<Warning>
+  Deleting a motel with active confirmed reservations may affect guests. Cancel or complete all reservations before deleting the property.
+</Warning>

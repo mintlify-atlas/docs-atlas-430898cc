@@ -1,0 +1,176 @@
+---
+title: "Admin Dashboard"
+description: "Platform-wide oversight: motel approvals, user management, and platform analytics."
+---
+
+The Admin Dashboard gives platform administrators full visibility and control over Ubik. It is accessible at `/dashboard/admin` and is restricted to users with the **admin** role, which carries the `view_dashboard`, `edit_users`, `create_room`, `delete_room`, and `view_reports` permissions.
+
+<Warning>
+  The admin route is protected by `permissionGuard('view_dashboard')`. Users without the admin role will not be able to access this route and are redirected automatically.
+</Warning>
+
+## Role and Permission Model
+
+Ubik uses a role-based permission system. Roles are identified by numeric IDs, and each role has a fixed set of permissions:
+
+```typescript
+export type Permission =
+  | 'view_dashboard'
+  | 'edit_users'
+  | 'create_room'
+  | 'delete_room'
+  | 'view_reports';
+
+// Role permission map (from PermissionService)
+const ROLE_PERMISSIONS = {
+  // Admin — full access
+  7392841056473829: [
+    'view_dashboard',
+    'edit_users',
+    'create_room',
+    'delete_room',
+    'view_reports',
+  ],
+  // Owner — manage own properties
+  3847261094857362: [
+    'view_dashboard',
+    'create_room',
+    'view_reports',
+  ],
+  // Client — no dashboard access
+  9182736450192837: [],
+};
+```
+
+## Dashboard Overview
+
+The statistics panel at the top of the admin dashboard provides a platform-wide snapshot:
+
+<CardGroup cols={2}>
+  <Card title="Users" icon="users">
+    Total number of registered users on the platform.
+  </Card>
+  <Card title="Motels" icon="building">
+    Total number of motel listings (all statuses).
+  </Card>
+  <Card title="Reservations" icon="calendar-check">
+    Total reservations made across the platform.
+  </Card>
+  <Card title="Revenue" icon="dollar-sign">
+    Aggregate platform revenue in COP.
+  </Card>
+</CardGroup>
+
+## Motel Approval Workflow
+
+The admin is responsible for reviewing motel submissions and transitioning them through the approval lifecycle.
+
+<Steps>
+  <Step title="New submission arrives">
+    When an owner submits a new motel, it lands with `approvalStatus: 'PENDING'`. The admin dashboard surfaces these submissions for review.
+  </Step>
+
+  <Step title="Begin review">
+    The admin opens the motel details. The status transitions to `'UNDER_REVIEW'`. The admin can inspect:
+    - Property name, address, and contact information
+    - RUES and RNT registration numbers
+    - Owner identity documents (`ownerDocumentType`, `ownerDocumentNumber`, `ownerFullName`)
+    - Legal representative information
+    - Uploaded legal document (`legalDocumentUrl`)
+    - Motel images
+  </Step>
+
+  <Step title="Approve or reject">
+    The admin makes a decision:
+
+    - **Approve** → status becomes `'APPROVED'`, `approvalDate` is set, `approvedByUserId` records the admin's ID. The motel becomes publicly visible on the Explore page.
+    - **Reject** → status becomes `'REJECTED'`, `rejectionReason` is populated with an explanation. The motel is not visible to clients. The owner can see the rejection reason in their dashboard.
+  </Step>
+</Steps>
+
+```typescript
+// Fields updated on approval/rejection
+approvalStatus: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+approvalDate: string | null;
+approvedByUserId: number | null;
+rejectionReason: string | null;
+```
+
+## User Management
+
+Admins can access the user management panel via the **Administrar Usuarios** button in the Gestión Global section. Actions available to admins include:
+
+- View all registered users
+- Edit user roles and profile information (requires `edit_users` permission)
+- Suspend or remove accounts
+
+<Tabs>
+  <Tab title="Admin permissions">
+    ```typescript
+    // Permissions available to admins
+    'view_dashboard'  // Access to both admin and owner dashboards
+    'edit_users'      // Modify user accounts and roles
+    'create_room'     // Create rooms on any motel
+    'delete_room'     // Remove rooms from any motel
+    'view_reports'    // Access platform analytics and revenue reports
+    ```
+  </Tab>
+  <Tab title="Owner permissions">
+    ```typescript
+    // Permissions available to owners (for comparison)
+    'view_dashboard'  // Access to owner dashboard only
+    'create_room'     // Create rooms on their own motels
+    'view_reports'    // View reports scoped to their own properties
+    ```
+  </Tab>
+  <Tab title="Client permissions">
+    ```typescript
+    // Clients have no dashboard permissions
+    // [] — empty permission set
+    ```
+  </Tab>
+</Tabs>
+
+## Reports
+
+Admins can access the reporting module via the **Ver Reportes** button. Reports cover:
+
+- Reservation volume over time
+- Revenue by motel and by city
+- User registration trends
+- Motel approval pipeline status
+
+<Note>
+  The reports section requires the `view_reports` permission. Both admins and owners have this permission, but owners only see data scoped to their own properties.
+</Note>
+
+## Checking Permissions Programmatically
+
+The `PermissionService` provides helper methods that can be used in any component or guard:
+
+```typescript
+// Check a single permission
+permissionService.hasPermission('edit_users'); // boolean
+
+// Check if user has at least one of the given permissions
+permissionService.hasAnyPermission(['edit_users', 'view_reports']); // boolean
+
+// Check if user has all of the given permissions
+permissionService.hasAllPermissions(['view_dashboard', 'edit_users']); // boolean
+```
+
+Permissions are computed reactively from the authenticated user's role ID using Angular signals (`computed<Permission[]>`).
+
+## Frequently Asked Questions
+
+<Accordion title="Can admins manage rooms directly?">
+  Yes. The `create_room` and `delete_room` permissions are granted to admins and allow them to create or remove rooms on any motel on the platform, not just their own.
+</Accordion>
+
+<Accordion title="What happens to reservations when a motel is rejected?">
+  The approval workflow applies to the motel listing status only. Existing confirmed reservations for a motel that is later rejected are not automatically cancelled. Reservation management in this scenario is handled operationally.
+</Accordion>
+
+<Accordion title="Can an admin also be an owner?">
+  The permission system is role-based, not additive. A user has a single role. Admins have a superset of owner permissions, so an admin can perform all owner actions but is not technically registered as an owner.
+</Accordion>

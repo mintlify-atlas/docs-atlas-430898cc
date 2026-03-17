@@ -1,0 +1,109 @@
+---
+title: "API Overview"
+description: "Base URLs, authentication, request/response format, and error handling for the Ubik API."
+---
+
+## Base URLs
+
+| Environment | URL |
+|---|---|
+| API (REST resources) | `https://ubik-back.duckdns.org/api` |
+| Auth (identity) | `https://ubik-back.duckdns.org/auth` |
+
+All endpoints under **`/api`** require a valid bearer token unless explicitly marked as public. Auth endpoints under **`/auth`** are unauthenticated unless noted.
+
+---
+
+## Authentication
+
+Ubik uses **JWT Bearer tokens**. Include the token on every authenticated request:
+
+```bash
+Authorization: Bearer <token>
+```
+
+The Angular `authInterceptor` automatically attaches the stored token to all requests targeting `ubik-back.duckdns.org`. It skips Cloudinary URLs and the public `/auth/login` and `/auth/register` endpoints.
+
+### Token storage
+
+| Key | Storage | Description |
+|---|---|---|
+| `auth_token` | `localStorage` | Raw JWT (no `Bearer` prefix) |
+| `auth_expires_at` | `localStorage` | Expiry timestamp in milliseconds |
+| `user` | `localStorage` | Serialised user object |
+
+### Token expiry
+
+- Expiry is read from the JWT `exp` claim (`exp * 1000` → milliseconds).
+- If the token has no `exp` claim, a **24-hour TTL** is applied from the time of login.
+- An auto-logout timer is scheduled in the browser; the session is also validated on tab focus and `visibilitychange` events.
+- Cross-tab logout is synchronised via the `storage` event.
+
+### Roles
+
+The user object carries a `roleId` field that controls access:
+
+| Role | `roleId` | Notes |
+|---|---|---|
+| Admin | `7392841056473829` | Full platform access |
+| Owner | `3847261094857362` | Motel management |
+| Client | `9182736450192837` | Booking and reservations |
+
+---
+
+## Request / Response Format
+
+- All request and response bodies are **JSON** (`Content-Type: application/json`) unless the endpoint accepts multipart form data (image upload).
+- Dates are **ISO 8601** strings (e.g. `"2025-12-31T00:00:00.000Z"`).
+- Monetary amounts are integers in **Colombian Pesos (COP)**.
+
+---
+
+## Error Handling
+
+The API returns standard HTTP status codes. Error bodies follow this shape:
+
+```json
+{
+  "statusCode": 400,
+  "message": "Validation failed",
+  "error": "Bad Request"
+}
+```
+
+| Status | Meaning |
+|---|---|
+| `200` | Success |
+| `201` | Resource created |
+| `400` | Bad request / validation error |
+| `401` | Missing or invalid token |
+| `403` | Insufficient permissions |
+| `404` | Resource not found |
+| `409` | Conflict (duplicate resource) |
+| `500` | Internal server error |
+
+<Warning>
+  On `401` or `403`, the Angular `AuthService` automatically calls `logout()`, clears `localStorage`, and redirects the user to the login page.
+</Warning>
+
+---
+
+## Rate Limiting
+
+<Note>
+  Rate limiting configuration is not currently documented. Contact the Ubik backend team for production limits before deploying high-volume integrations.
+</Note>
+
+---
+
+## Getting a Token
+
+See the [Authentication API](/api/auth) page for full details on how to obtain a JWT via login or registration.
+
+```bash
+curl -X POST https://ubik-back.duckdns.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "user@example.com", "password": "secret"}'
+```
+
+Store the returned token and include it in the `Authorization` header for all subsequent requests.

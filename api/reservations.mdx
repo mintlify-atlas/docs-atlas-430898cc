@@ -1,0 +1,174 @@
+---
+title: "Reservations API"
+description: "Create and manage room reservations on the Ubik platform."
+---
+
+<Note>
+  Reservation creation requires a valid bearer token. Pass the authenticated user's ID as `userId` in the request body.
+</Note>
+
+---
+
+## Reservation Object
+
+<ResponseField name="id" type="number">
+  Unique reservation ID.
+</ResponseField>
+
+<ResponseField name="motel_id" type="number">
+  ID of the motel.
+</ResponseField>
+
+<ResponseField name="room_id" type="number">
+  ID of the reserved room.
+</ResponseField>
+
+<ResponseField name="user_id" type="number">
+  ID of the user who made the reservation.
+</ResponseField>
+
+<ResponseField name="total_price" type="number">
+  Total cost of the reservation in **Colombian Pesos (COP)**.
+</ResponseField>
+
+<ResponseField name="start_date" type="string">
+  Check-in date/time (ISO 8601).
+</ResponseField>
+
+<ResponseField name="end_date" type="string">
+  Check-out date/time (ISO 8601).
+</ResponseField>
+
+<ResponseField name="status" type="'pending' | 'confirmed' | 'cancelled'">
+  Current reservation status.
+
+  | Value | Description |
+  |---|---|
+  | `pending` | Created but payment not yet confirmed |
+  | `confirmed` | Payment successful, reservation active |
+  | `cancelled` | Reservation was cancelled |
+</ResponseField>
+
+<ResponseField name="special_requests" type="string">
+  Any special requests from the guest.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="updated_at" type="string">
+  ISO 8601 last-updated timestamp.
+</ResponseField>
+
+---
+
+## POST /reservations
+
+Create a new reservation. Called as the first step in the payment flow — the returned `id` is passed to [POST /payments/create-intent](/api/payments#post-paymentscreate-intent).
+
+```
+POST https://ubik-back.duckdns.org/api/reservations
+```
+
+### Request body
+
+<ParamField path="roomId" type="number" required>
+  ID of the room to reserve.
+</ParamField>
+
+<ParamField path="motelId" type="number" required>
+  ID of the motel that owns the room.
+</ParamField>
+
+<ParamField path="totalPrice" type="number" required>
+  Total reservation cost in COP.
+</ParamField>
+
+<ParamField path="userId" type="number" required>
+  ID of the authenticated user making the reservation.
+</ParamField>
+
+<ParamField path="checkInDate" type="string" required>
+  Check-in date/time in ISO 8601 format (e.g. `"2025-12-24T14:00:00.000Z"`).
+</ParamField>
+
+<ParamField path="checkOutDate" type="string" required>
+  Check-out date/time in ISO 8601 format (e.g. `"2025-12-25T12:00:00.000Z"`).
+</ParamField>
+
+### Response
+
+<ResponseField name="id" type="number">
+  The newly created reservation ID. **Store this — it is required for payment intent creation.**
+</ResponseField>
+
+<ResponseField name="confirmationCode" type="string">
+  Optional human-readable confirmation code.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/reservations \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roomId": 15,
+    "motelId": 42,
+    "totalPrice": 300000,
+    "userId": 7,
+    "checkInDate": "2025-12-24T14:00:00.000Z",
+    "checkOutDate": "2025-12-25T12:00:00.000Z"
+  }'
+```
+
+```json Response
+{
+  "id": 128,
+  "confirmationCode": "UBK-128-XP9"
+}
+```
+
+```typescript Angular (PaymentService)
+import { PaymentService } from '@core/services/payment.service';
+
+this.paymentService.createReservation(
+  15,        // roomId
+  42,        // motelId
+  300000,    // totalPrice (COP)
+  7,         // userId
+  '2025-12-24T14:00:00.000Z',  // checkInDate
+  '2025-12-25T12:00:00.000Z'   // checkOutDate
+).subscribe(({ id, confirmationCode }) => {
+  console.log('Reservation created:', id, confirmationCode);
+  // Proceed to create payment intent with reservationId = id
+});
+```
+
+</CodeGroup>
+
+---
+
+## Reservation Lifecycle
+
+A reservation moves through the following states:
+
+```
+POST /reservations
+  └─> status: "pending"
+        │
+        ├─> POST /payments/create-intent  (Stripe payment initiated)
+        │         │
+        │         └─> Stripe confirms payment
+        │                   │
+        │                   └─> status: "confirmed"
+        │
+        └─> User or system cancels
+                  │
+                  └─> status: "cancelled"
+```
+
+<Warning>
+  A reservation in `pending` state has **not** been paid for. Do not treat it as confirmed until the associated payment intent is successfully completed. See the [Payments API](/api/payments) for the full flow.
+</Warning>

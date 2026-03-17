@@ -1,0 +1,485 @@
+---
+title: "Rooms API"
+description: "Endpoints for managing rooms, checking availability, and subscribing to notifications."
+---
+
+<Note>
+  Room creation requires authentication (owner token). Read endpoints for rooms and availability are public.
+</Note>
+
+---
+
+## Room Object
+
+<ResponseField name="id" type="number">
+  Unique room ID.
+</ResponseField>
+
+<ResponseField name="motelId" type="number">
+  ID of the parent motel.
+</ResponseField>
+
+<ResponseField name="motelName" type="string">
+  Name of the parent motel (denormalised).
+</ResponseField>
+
+<ResponseField name="motelCity" type="string">
+  City of the parent motel (denormalised).
+</ResponseField>
+
+<ResponseField name="motelAddress" type="string">
+  Address of the parent motel (denormalised).
+</ResponseField>
+
+<ResponseField name="motelPhoneNumber" type="string">
+  Phone number of the parent motel (denormalised).
+</ResponseField>
+
+<ResponseField name="number" type="string">
+  Room identifier/number (e.g. `"101"`, `"A2"`).
+</ResponseField>
+
+<ResponseField name="roomType" type="string">
+  Room category (e.g. `"Suite"`, `"Standard"`).
+</ResponseField>
+
+<ResponseField name="price" type="number">
+  Price per night in **Colombian Pesos (COP)**.
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Room description.
+</ResponseField>
+
+<ResponseField name="imageUrls" type="string[]">
+  Array of Cloudinary image URLs.
+</ResponseField>
+
+<ResponseField name="serviceIds" type="number[]">
+  IDs of services associated with this room. Resolve via [GET /services](#get-services).
+</ResponseField>
+
+<ResponseField name="latitude" type="number">
+  Room/motel geographic latitude.
+</ResponseField>
+
+<ResponseField name="longitude" type="number">
+  Room/motel geographic longitude.
+</ResponseField>
+
+<ResponseField name="isAvailable" type="boolean">
+  Whether the room is currently available for booking.
+</ResponseField>
+
+---
+
+## RoomImage Object
+
+<ResponseField name="id" type="number">
+  Image record ID.
+</ResponseField>
+
+<ResponseField name="url" type="string">
+  Cloudinary URL.
+</ResponseField>
+
+<ResponseField name="room_id" type="number">
+  ID of the owning room.
+</ResponseField>
+
+<ResponseField name="order_index" type="number">
+  Display sort order.
+</ResponseField>
+
+---
+
+## Service Object
+
+<ResponseField name="id" type="number">
+  Unique service ID.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Service name (e.g. `"Wi-Fi"`, `"Jacuzzi"`).
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Service description.
+</ResponseField>
+
+<ResponseField name="icon" type="string">
+  Icon identifier or URL for the service.
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+---
+
+## GET /rooms
+
+Return all rooms across all motels.
+
+```
+GET https://ubik-back.duckdns.org/api/rooms
+```
+
+### Response
+
+Array of [Room](#room-object) objects.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/rooms
+```
+
+```typescript Angular (RoomService)
+import { RoomService } from '@core/services/room.service';
+
+this.roomService.getRooms().subscribe((rooms: Room[]) => {
+  console.log(rooms);
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /rooms/:id
+
+Return a single room by ID.
+
+```
+GET https://ubik-back.duckdns.org/api/rooms/{id}
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  The room's numeric ID.
+</ParamField>
+
+### Response
+
+A single [Room](#room-object) object.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/rooms/15
+```
+
+```typescript Angular
+this.roomService.getRoomById(15).subscribe((room: Room) => {
+  console.log(room.price);
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /motels/:motelId/rooms
+
+Return all rooms belonging to a specific motel.
+
+```
+GET https://ubik-back.duckdns.org/api/motels/{motelId}/rooms
+```
+
+### Path parameters
+
+<ParamField path="motelId" type="number" required>
+  The motel's numeric ID.
+</ParamField>
+
+### Response
+
+Array of [Room](#room-object) objects.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/motels/42/rooms
+```
+
+```typescript Angular
+this.roomService.getRoomsByMotel(42).subscribe((rooms: Room[]) => {
+  console.log(rooms);
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /rooms
+
+Create a new room. **Owner only.**
+
+```
+POST https://ubik-back.duckdns.org/api/rooms
+```
+
+### Request body (`RoomCreatePayload`)
+
+<ParamField path="motelId" type="number" required>
+  ID of the motel this room belongs to.
+</ParamField>
+
+<ParamField path="number" type="string" required>
+  Room number or identifier.
+</ParamField>
+
+<ParamField path="roomType" type="string" required>
+  Room category (e.g. `"Suite"`, `"Standard"`).
+</ParamField>
+
+<ParamField path="price" type="number" required>
+  Price per night in COP.
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional room description.
+</ParamField>
+
+<ParamField path="serviceIds" type="number[]">
+  IDs of services to associate with this room.
+</ParamField>
+
+<ParamField path="imageUrls" type="string[]">
+  Cloudinary URLs of room images.
+</ParamField>
+
+<ParamField path="latitude" type="number">
+  Geographic latitude.
+</ParamField>
+
+<ParamField path="longitude" type="number">
+  Geographic longitude.
+</ParamField>
+
+### Response
+
+The created [Room](#room-object) object.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/rooms \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "motelId": 42,
+    "number": "101",
+    "roomType": "Suite",
+    "price": 150000,
+    "description": "Luxury suite with jacuzzi",
+    "serviceIds": [1, 3, 5],
+    "imageUrls": [],
+    "latitude": 6.2442,
+    "longitude": -75.5812
+  }'
+```
+
+```typescript Angular
+this.roomService.createRoom(payload).subscribe((room: Room) => {
+  console.log('Room created:', room.id);
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /services
+
+Return all available room services (Wi-Fi, Jacuzzi, etc.).
+
+```
+GET https://ubik-back.duckdns.org/api/services
+```
+
+### Response
+
+Array of [Service](#service-object) objects.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/services
+```
+
+```typescript Angular
+this.roomService.getAllServices().subscribe((services: Service[]) => {
+  this.availableServices = services;
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /rooms/:id/availability
+
+Check whether a room is available for a given date and time window.
+
+```
+GET https://ubik-back.duckdns.org/api/rooms/{id}/availability?date=&startTime=&endTime=
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  The room's numeric ID.
+</ParamField>
+
+### Query parameters
+
+<ParamField path="date" type="string" required>
+  Date to check in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField path="startTime" type="string" required>
+  Start time in `HH:MM` (24-hour) format.
+</ParamField>
+
+<ParamField path="endTime" type="string" required>
+  End time in `HH:MM` (24-hour) format.
+</ParamField>
+
+### Response
+
+<ResponseField name="available" type="boolean">
+  `true` if the room is available for the requested window.
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Optional human-readable message (e.g. reason for unavailability).
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl "https://ubik-back.duckdns.org/api/rooms/15/availability?date=2025-12-24&startTime=14:00&endTime=12:00"
+```
+
+```typescript Angular
+this.roomService.checkAvailability(15, '2025-12-24', '14:00', '12:00')
+  .subscribe(({ available, message }) => {
+    if (available) {
+      console.log('Room is available');
+    } else {
+      console.warn(message);
+    }
+  });
+```
+
+</CodeGroup>
+
+---
+
+## GET /rooms/:id/reservations
+
+Return all reservations for a room on a specific date.
+
+```
+GET https://ubik-back.duckdns.org/api/rooms/{id}/reservations?date=
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  The room's numeric ID.
+</ParamField>
+
+### Query parameters
+
+<ParamField path="date" type="string" required>
+  Date in `YYYY-MM-DD` format.
+</ParamField>
+
+### Response
+
+Array of `RoomReservation` objects:
+
+<ResponseField name="id" type="number">
+  Reservation ID.
+</ResponseField>
+
+<ResponseField name="room_id" type="number">
+  ID of the reserved room.
+</ResponseField>
+
+<ResponseField name="start_date" type="string">
+  Check-in date (ISO 8601).
+</ResponseField>
+
+<ResponseField name="start_time" type="string">
+  Check-in time (`HH:MM`).
+</ResponseField>
+
+<ResponseField name="end_time" type="string">
+  Check-out time (`HH:MM`).
+</ResponseField>
+
+<ResponseField name="status" type="'pending' | 'confirmed' | 'cancelled'">
+  Current reservation status.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl "https://ubik-back.duckdns.org/api/rooms/15/reservations?date=2025-12-24"
+```
+
+```typescript Angular
+this.roomService.getReservationsForDate(15, '2025-12-24')
+  .subscribe((reservations: RoomReservation[]) => {
+    console.log(reservations);
+  });
+```
+
+</CodeGroup>
+
+---
+
+## POST /rooms/:id/notify-available
+
+Subscribe an email address to be notified when a room becomes available.
+
+```
+POST https://ubik-back.duckdns.org/api/rooms/{id}/notify-available
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  The room's numeric ID.
+</ParamField>
+
+### Request body
+
+<ParamField path="email" type="string" required>
+  Email address to notify.
+</ParamField>
+
+### Response
+
+`204 No Content`
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/rooms/15/notify-available \
+  -H "Content-Type: application/json" \
+  -d '{"email": "guest@example.com"}'
+```
+
+```typescript Angular
+this.roomService.subscribeAvailability(15, 'guest@example.com').subscribe();
+```
+
+</CodeGroup>

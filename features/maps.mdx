@@ -1,0 +1,216 @@
+---
+title: "Interactive Maps"
+description: "Leaflet.js-powered maps for motel discovery, real-time user location, and geolocation-based search."
+---
+
+Ubik embeds interactive maps powered by [Leaflet.js](https://leafletjs.com) and [OpenStreetMap](https://www.openstreetmap.org) tiles. Maps appear on the Explore page and on individual room detail pages.
+
+## Map Component
+
+The `Map` component (`app-map`) is a standalone Angular component that accepts a list of geographic points and an optional active point:
+
+```typescript
+export interface MapPoint {
+  lat: number;
+  lng: number;
+  name: string;
+  id?: number;
+}
+
+@Component({ selector: 'app-map', standalone: true })
+export class Map implements AfterViewInit, OnChanges {
+  @Input() points: MapPoint[] = [];     // Motel / room pins to render
+  @Input() active: MapPoint | null = null; // Triggers flyTo on change
+
+  @Output() markerClicked = new EventEmitter<MapPoint>();
+}
+```
+
+When `active` changes, the map animates to the new coordinates:
+
+```typescript
+if (changes['active'] && this.active) {
+  this.map.flyTo([this.active.lat, this.active.lng], 17, {
+    animate: true,
+    duration: 1.2,
+  });
+}
+```
+
+## Initialisation
+
+Leaflet is loaded **dynamically** (`await import('leaflet')`) to avoid SSR issues. The map is centred on Bogotá by default:
+
+```typescript
+this.map = this.L.map(this.mapContainer.nativeElement, {
+  center: [4.6, -74.1],
+  zoom: 13,
+});
+
+this.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap contributors',
+}).addTo(this.map);
+```
+
+<Note>
+  The map only initialises when running in a browser context (`isPlatformBrowser`). During server-side rendering it returns early, so the component is safe for SSR builds.
+</Note>
+
+## User Geolocation
+
+The map tracks the user's physical location in two phases:
+
+<Steps>
+  <Step title="Initial position">
+    On load, `getUserLocation()` requests a one-time high-accuracy GPS fix:
+
+    ```typescript
+    export function getUserLocation(): Promise<UserLocation> {
+      return new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => resolve({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+          }),
+          (err) => reject(err),
+          { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+        );
+      });
+    }
+    ```
+
+    A custom person icon is placed at the user's coordinates with the popup **"📍 Tú estás aquí"**.
+  </Step>
+
+  <Step title="Continuous tracking">
+    After the initial fix, `navigator.geolocation.watchPosition()` keeps the user marker updated in real time:
+
+    ```typescript
+    this.watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const newLatLng: [number, number] = [
+          pos.coords.latitude,
+          pos.coords.longitude,
+        ];
+        this.userLatLng = newLatLng;
+        this.placeUserMarker(newLatLng); // Moves existing marker, no duplicate
+      },
+      (err) => console.warn('watchPosition error:', err),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
+    );
+    ```
+
+    The watch is cleaned up via `navigator.geolocation.clearWatch(this.watchId)` in `ngOnDestroy`.
+  </Step>
+
+  <Step title="Auto-zoom to user">
+    Once both the user's position and motel markers are available, the map flies to the user's location at zoom 14:
+
+    ```typescript
+    this.map.flyTo(this.userLatLng, 14, { animate: true, duration: 1.8 });
+    ```
+
+    This zoom only happens **once per session** (`userZoomDone` flag). Subsequent location updates only move the marker.
+  </Step>
+</Steps>
+
+## Motel and Room Markers
+
+Each motel and room that has valid coordinates gets a custom motel icon pin:
+
+```typescript
+this.motelIcon = this.L.icon({
+  iconUrl: 'assets/icons/leaflet/icon_motel.png',
+  iconSize: [27, 36],
+  iconAnchor: [18, 36],
+  popupAnchor: [0, -36],
+});
+```
+
+Markers are rendered inside a `LayerGroup` so they can all be cleared and re-rendered efficiently when the filter changes:
+
+```typescript
+private renderMarkers() {
+  this.markerLayer.clearLayers();
+
+  for (const p of this.points) {
+    const marker = this.L.marker([p.lat, p.lng], { icon: this.motelIcon })
+      .bindPopup(p.name);
+
+    marker.on('click', () => this.markerClicked.emit(p));
+    marker.addTo(this.markerLayer);
+  }
+
+  this.adjustView();
+}
+```
+
+When multiple markers are present, the map calls `fitBounds` with 50 px padding to show all pins. When only one pin is present, it uses `setView` at zoom 14.
+
+## How Coordinates Reach the Map
+
+Coordinates come from the `Motel` and `Room` models:
+
+```typescript
+// Motel model
+latitude: number | null;
+longitude: number | null;
+
+// Room model
+latitude: number;
+longitude: number;
+```
+
+In the Explore page, only cards with non-null, non-zero lat/lng are converted into `MapPoint` objects:
+
+```typescript
+private mapPoints(cards: Card3Informacion[]): MapPoint[] {
+  return cards
+    .filter(c => c.lat != null && c.lng != null && c.lat !== 0 && c.lng !== 0)
+    .map(c => ({
+      lat: c.lat!,
+      lng: c.lng!,
+      name: c.type === 'room'
+        ? `${c.motelName} — ${c.roomType}`
+        : c.motelName,
+      id: c.id,
+    }));
+}
+```
+
+## How Owners Set Coordinates
+
+When creating or editing a motel, owners provide `latitude` and `longitude` directly in the **Create Motel** form:
+
+```typescript
+export interface CreateMotelRequest {
+  name: string;
+  address: string;
+  city: string;
+  latitude: number | null;
+  longitude: number | null;
+  // ... other fields
+}
+```
+
+<Tip>
+  Owners can find the exact coordinates for their property using [Google Maps](https://maps.google.com) (right-click → "What's here?") or [latlong.net](https://www.latlong.net). Precision to 4–6 decimal places is sufficient.
+</Tip>
+
+## Mobile Map
+
+On screens narrower than 1024 px (the `lg` Tailwind breakpoint), the desktop side-panel map is hidden. Instead, each card shows a **View Location** button. Tapping it opens a full-screen bottom sheet containing:
+
+- A Leaflet map centred on the selected card's coordinates
+- The motel/room card details
+- A **Reserve** button that launches the payment modal directly
+
+The mobile map calls `invalidateSize()` after a 200 ms delay to ensure Leaflet recalculates its dimensions after the bottom sheet animation completes.
+
+## Custom Icons
+
+| Icon | Path | Usage |
+|---|---|---|
+| Person | `assets/icons/leaflet/icon_person.png` | Current user location |
+| Motel | `assets/icons/leaflet/icon_motel.png` | Motel and room markers |

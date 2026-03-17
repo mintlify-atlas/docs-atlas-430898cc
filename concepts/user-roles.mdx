@@ -1,0 +1,209 @@
+---
+title: "User roles"
+description: "Ubik has three roles — Admin, Owner, and Client — each with a distinct set of permissions enforced by route guards."
+keywords: ["roles", "permissions", "admin", "owner", "client", "guard", "access control"]
+---
+
+Every user account in Ubik has a `roleId` field that determines which parts of the application they can access. Three roles exist: **Admin**, **Owner**, and **Client**.
+
+## Role identifiers
+
+Role IDs are 64-bit integers stored in the `roleId` field of the `Users` model and compared in `AuthService` computed signals:
+
+```typescript
+// src/app/core/services/auth.service.ts
+isAdmin = computed(() => this.role() === 7392841056473829);
+isOwner = computed(() => this.role() === 3847261094857362);
+isUser  = computed(() => this.role() === 9182736450192837);
+```
+
+| Role | roleId |
+|---|---|
+| Admin | `7392841056473829` |
+| Owner | `3847261094857362` |
+| Client | `9182736450192837` |
+
+## Permissions
+
+`PermissionService` maps each role ID to an explicit list of permission strings:
+
+```typescript
+// src/app/core/services/permission.service.ts
+private readonly ROLE_PERMISSIONS: Record<number, Permission[]> = {
+  7392841056473829: [ // Admin
+    'view_dashboard',
+    'edit_users',
+    'create_room',
+    'delete_room',
+    'view_reports',
+  ],
+  3847261094857362: [ // Owner
+    'view_dashboard',
+    'create_room',
+    'view_reports',
+  ],
+  9182736450192837: [], // Client
+};
+```
+
+The full set of permission strings is defined as a union type:
+
+```typescript
+export type Permission =
+  | 'view_dashboard'
+  | 'edit_users'
+  | 'create_room'
+  | 'delete_room'
+  | 'view_reports';
+```
+
+## Role comparison
+
+<Tabs>
+  <Tab title="Admin">
+    The Admin role has full platform access.
+
+    | Capability | Allowed |
+    |---|---|
+    | View admin dashboard (`/dashboard/admin`) | Yes |
+    | Edit user accounts | Yes |
+    | Create rooms | Yes |
+    | Delete rooms | Yes |
+    | View reports | Yes |
+    | Browse motels and rooms | Yes |
+    | Make reservations | Yes |
+
+    Admins are typically internal platform operators. There is no self-service path to become an Admin — the role must be assigned directly in the database.
+  </Tab>
+  <Tab title="Owner">
+    The Owner role is for property managers.
+
+    | Capability | Allowed |
+    |---|---|
+    | View owner dashboard (`/dashboard/owner`) | Yes |
+    | Create rooms | Yes |
+    | View reports | Yes |
+    | Edit user accounts | No |
+    | Delete rooms | No |
+    | Browse motels and rooms | Yes |
+    | Make reservations | Yes |
+
+    Owners register via `/register-owner` and are associated with one or more motel properties. They manage room listings and view booking reports for their properties.
+  </Tab>
+  <Tab title="Client">
+    The Client role is for end users.
+
+    | Capability | Allowed |
+    |---|---|
+    | Browse motels and rooms | Yes |
+    | Make reservations | Yes |
+    | View and edit own profile | Yes |
+    | Access any dashboard | No |
+    | Create or delete rooms | No |
+    | View reports | No |
+
+    Clients have no named permissions in the `ROLE_PERMISSIONS` map (empty array). All Client-accessible features rely on authentication alone, not permission checks.
+  </Tab>
+</Tabs>
+
+## Route guards
+
+The `permissionGuard` factory in `src/app/core/guards/permission.guard.ts` protects routes that require a specific permission:
+
+```typescript
+// src/app/core/guards/permission.guard.ts
+export const permissionGuard =
+  (requiredPermission: Permission): CanActivateFn =>
+  async () => {
+    const authService = inject(AuthService);
+    const permissionService = inject(PermissionService);
+    const router = inject(Router);
+
+    // Wait for app initializer to finish before checking
+    if (!authService.initialized()) {
+      await authService.restoreSession();
+    }
+
+    const allowed = permissionService.hasPermission(requiredPermission);
+
+    if (!allowed) {
+      return router.parseUrl('/home');
+    }
+
+    return true;
+  };
+```
+
+The guard:
+
+1. Waits for `AuthService` to finish initializing (i.e., `restoreSession()` has run).
+2. Calls `PermissionService.hasPermission()` with the required permission string.
+3. Redirects to `/` if the user lacks the permission.
+
+### Protected routes
+
+Currently two routes are guarded with `permissionGuard('view_dashboard')`:
+
+```typescript
+// src/app/app.routes.ts
+{
+  path: 'dashboard/admin',
+  canActivate: [permissionGuard('view_dashboard')],
+  component: DashboardAdmin,
+},
+{
+  path: 'dashboard/owner',
+  canActivate: [permissionGuard('view_dashboard')],
+  component: DashboardOwner,
+},
+```
+
+Both Admin and Owner have `view_dashboard` in their permission list, so both can reach their respective dashboards. A Client attempting to navigate to either URL is redirected to the home page.
+
+<Warning>
+  The guard checks the **permission**, not the role directly. If you add a new dashboard route, protect it with `permissionGuard('view_dashboard')` rather than checking the role ID manually.
+</Warning>
+
+## User model
+
+The `Users` interface in `src/app/core/models/users.model.ts` defines the fields available on a user object at runtime:
+
+```typescript
+// src/app/core/models/users.model.ts
+export interface Users {
+  id: number;
+  username: string;
+  email: string;
+  password: string;
+  phoneNumber: string;
+  anonymous: boolean;
+  roleId: number;       // determines role and permissions
+  birthDate: Date | null;
+  longitude: number | null;
+  latitude: number | null;
+}
+```
+
+## Checking permissions programmatically
+
+`PermissionService` exposes three helper methods you can inject into any component or service:
+
+```typescript
+// Check a single permission
+if (permissionService.hasPermission('create_room')) { ... }
+
+// Check if the user has at least one of several permissions
+if (permissionService.hasAnyPermission(['edit_users', 'delete_room'])) { ... }
+
+// Check if the user has all of the listed permissions
+if (permissionService.hasAllPermissions(['create_room', 'view_reports'])) { ... }
+```
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    How JWT tokens are stored and sessions are restored.
+  </Card>
+  <Card title="Architecture" icon="layer-group" href="/concepts/architecture">
+    Directory structure, SSR, and data flow.
+  </Card>
+</CardGroup>

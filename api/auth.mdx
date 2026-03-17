@@ -1,0 +1,364 @@
+---
+title: "Authentication API"
+description: "Login, registration, session management, and password reset endpoints."
+---
+
+<Note>
+  Auth endpoints are served from `https://ubik-back.duckdns.org/api/auth` unless noted otherwise.
+  Login and register are **public** — no token required. All other endpoints require a valid `Authorization: Bearer <token>` header.
+</Note>
+
+---
+
+## JWT Token Structure
+
+Tokens are standard JWTs with a base64url-encoded payload. The `AuthService` decodes the payload to read the `exp` claim:
+
+```typescript
+// From auth.service.ts — base64UrlDecode
+const parts = token.split('.');
+const payload = JSON.parse(base64UrlDecode(parts[1]));
+// payload.exp — expiry in seconds (Unix timestamp)
+// payload.sub — user identifier (varies by backend)
+```
+
+Expected payload fields:
+
+```json
+{
+  "sub": "42",
+  "roleId": 9182736450192837,
+  "exp": 1735689600,
+  "iat": 1735603200
+}
+```
+
+---
+
+## POST /auth/login
+
+Authenticate with username and password. Returns a raw JWT string.
+
+```
+POST https://ubik-back.duckdns.org/api/auth/login
+```
+
+### Request body
+
+<ParamField path="username" type="string" required>
+  The user's email address or username.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  The user's password (plaintext, transmitted over HTTPS).
+</ParamField>
+
+### Response
+
+Returns the JWT as a plain text string (or a JSON wrapper with a `token` / `access_token` key — the client handles both).
+
+<ResponseField name="token" type="string">
+  The JWT bearer token. Store in `localStorage` under the key `auth_token`.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "jane@example.com", "password": "P@ssw0rd!"}'
+```
+
+```typescript Angular (LoginService)
+import { LoginService } from '@core/services/login.service';
+
+this.loginService.login({ username: 'jane@example.com', password: 'P@ssw0rd!' }, true)
+  .subscribe(token => {
+    // token is already stored in localStorage by the service
+    console.log('Logged in');
+  });
+```
+
+</CodeGroup>
+
+---
+
+## POST /auth/register — Client
+
+Register a new **client** user (`roleId: 3`).
+
+```
+POST https://ubik-back.duckdns.org/api/auth/register
+```
+
+### Request body
+
+<ParamField path="username" type="string" required>
+  Unique display name.
+</ParamField>
+
+<ParamField path="email" type="string" required>
+  Valid email address.
+</ParamField>
+
+<ParamField path="password" type="string" required>
+  Password (must satisfy backend strength rules).
+</ParamField>
+
+<ParamField path="comfirmPassword" type="string" required>
+  Password confirmation — must match `password`. Note the intentional spelling used by the API.
+</ParamField>
+
+<ParamField path="phoneNumber" type="string">
+  Contact phone number.
+</ParamField>
+
+<ParamField path="anonymous" type="boolean">
+  Whether the account is anonymous. Defaults to `false`.
+</ParamField>
+
+<ParamField path="roleId" type="number">
+  Set to `3` for client accounts. Defaults to `3` if omitted.
+</ParamField>
+
+<ParamField path="birthDate" type="string">
+  ISO 8601 date of birth (e.g. `"1995-06-15"`).
+</ParamField>
+
+<ParamField path="latitude" type="number">
+  User's location latitude. Defaults to `4.6097` (Bogotá).
+</ParamField>
+
+<ParamField path="longitude" type="number">
+  User's location longitude. Defaults to `-74.0721` (Bogotá).
+</ParamField>
+
+### Response
+
+Returns the created user as plain text or a confirmation message.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "jane",
+    "email": "jane@example.com",
+    "password": "P@ssw0rd!",
+    "comfirmPassword": "P@ssw0rd!",
+    "phoneNumber": "+573001234567",
+    "anonymous": false,
+    "roleId": 3,
+    "birthDate": "1995-06-15",
+    "latitude": 4.6097,
+    "longitude": -74.0721
+  }'
+```
+
+```typescript Angular (RegisterService)
+import { RegisterService } from '@core/services/register-user.service';
+
+this.registerService.submitClientRegistration(formData).subscribe({
+  next: () => router.navigate(['/login']),
+  error: err => console.error(err)
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /auth/register — Owner
+
+Register a new **motel owner** user (`roleId: 2`). Uses the same endpoint and payload shape as client registration.
+
+```
+POST https://ubik-back.duckdns.org/api/auth/register
+```
+
+The request body is identical to [Client Registration](#post-authregister--client) with one key difference:
+
+<ParamField path="roleId" type="number" required>
+  Must be `2` to create an owner account.
+</ParamField>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "motelowner",
+    "email": "owner@motel.com",
+    "password": "P@ssw0rd!",
+    "comfirmPassword": "P@ssw0rd!",
+    "phoneNumber": "+573009876543",
+    "anonymous": false,
+    "roleId": 2,
+    "birthDate": "1980-03-22",
+    "latitude": 6.2442,
+    "longitude": -75.5812
+  }'
+```
+
+```typescript Angular (RegisterServiceOwner)
+import { RegisterServiceOwner } from '@core/services/register-user-est.service';
+
+this.registerOwnerService.submitClientRegistration(formData).subscribe({
+  next: () => router.navigate(['/login']),
+  error: err => console.error(err)
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /auth/me
+
+Returns the authenticated user's profile. Called by `AuthService.restoreSession()` on app initialisation.
+
+```
+GET https://ubik-back.duckdns.org/auth/me
+```
+
+<Note>
+  This endpoint is served from the **Auth base URL** (`/auth/me`), not from `/api`.
+</Note>
+
+### Response
+
+<ResponseField name="id" type="number">
+  Unique user ID.
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Display name.
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address.
+</ResponseField>
+
+<ResponseField name="phoneNumber" type="string">
+  Contact phone number.
+</ResponseField>
+
+<ResponseField name="anonymous" type="boolean">
+  Whether the account is anonymous.
+</ResponseField>
+
+<ResponseField name="roleId" type="number">
+  Numeric role identifier. See [Roles](/api/overview#roles).
+</ResponseField>
+
+<ResponseField name="birthDate" type="string | null">
+  ISO 8601 date of birth.
+</ResponseField>
+
+<ResponseField name="latitude" type="number | null">
+  Stored location latitude.
+</ResponseField>
+
+<ResponseField name="longitude" type="number | null">
+  Stored location longitude.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/auth/me \
+  -H "Authorization: Bearer <token>"
+```
+
+```typescript Angular (AuthService)
+// Called automatically by AuthService.restoreSession()
+// Direct usage:
+this.http.get('https://ubik-back.duckdns.org/auth/me').subscribe(user => {
+  this.authService.setUser(user);
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /auth/reset-password-request
+
+Initiate a password reset flow. Sends a reset link to the user's email.
+
+```
+POST https://ubik-back.duckdns.org/api/auth/reset-password-request?email=<email>
+```
+
+<Note>
+  The email is passed as a **query parameter**, not in the request body. The request body is empty (`null`).
+</Note>
+
+### Query parameters
+
+<ParamField path="email" type="string" required>
+  The email address of the account to reset.
+</ParamField>
+
+### Response
+
+Returns a plain text confirmation message.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST \
+  "https://ubik-back.duckdns.org/api/auth/reset-password-request?email=jane%40example.com"
+```
+
+```typescript Angular (ForgotService)
+import { ForgotService } from '@core/services/forgot.service';
+
+this.forgotService.requestReset('jane@example.com').subscribe(msg => {
+  console.log(msg); // "Reset email sent"
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /auth/reset-password
+
+Complete the password reset using the token received by email.
+
+```
+POST https://ubik-back.duckdns.org/api/auth/reset-password
+```
+
+### Request body
+
+<ParamField path="token" type="string" required>
+  The reset token from the emailed link.
+</ParamField>
+
+<ParamField path="newPassword" type="string" required>
+  The desired new password.
+</ParamField>
+
+### Response
+
+Returns a plain text confirmation message.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{"token": "abc123resettoken", "newPassword": "NewP@ssw0rd!"}'
+```
+
+```typescript Angular (ForgotService)
+this.forgotService.resetPassword('abc123resettoken', 'NewP@ssw0rd!').subscribe(msg => {
+  console.log(msg); // "Password updated"
+});
+```
+
+</CodeGroup>

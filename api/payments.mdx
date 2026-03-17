@@ -1,0 +1,205 @@
+---
+title: "Payments API"
+description: "Stripe-based payment intents for motel reservations, including configuration and client secret handling."
+---
+
+<Warning>
+  The `clientSecret` returned by `POST /payments/create-intent` must **never** be logged, stored in a database, or sent to any third party. Pass it directly to the Stripe SDK in the browser.
+</Warning>
+
+---
+
+## TypeScript Interfaces
+
+Defined in `payment.service.ts`:
+
+```typescript
+export interface StripeConfig {
+  publishableKey: string;
+}
+
+export interface CreatePaymentResponse {
+  paymentId: number;
+  clientSecret: string;
+}
+```
+
+---
+
+## Payment Flow
+
+<Steps>
+  <Step title="Create a reservation">
+    Call `POST /reservations` with the room, motel, user, dates, and total price.
+    Store the returned `id` as your `reservationId`.
+
+    ```typescript
+    const { id: reservationId } = await firstValueFrom(
+      paymentService.createReservation(roomId, motelId, totalPrice, userId, checkIn, checkOut)
+    );
+    ```
+  </Step>
+
+  <Step title="Fetch the Stripe publishable key">
+    Call `GET /payments/config` to retrieve the Stripe publishable key for initialising the Stripe.js client.
+
+    ```typescript
+    const { publishableKey } = await firstValueFrom(
+      paymentService.getStripeConfig()
+    );
+    const stripe = Stripe(publishableKey);
+    ```
+  </Step>
+
+  <Step title="Create a payment intent">
+    Call `POST /payments/create-intent` with the `reservationId` and total amount in COP.
+    The response contains a `clientSecret` to confirm the payment client-side.
+
+    ```typescript
+    const { clientSecret } = await firstValueFrom(
+      paymentService.createPaymentIntent(reservationId, amountCop)
+    );
+    ```
+  </Step>
+
+  <Step title="Confirm payment with Stripe">
+    Pass the `clientSecret` to `stripe.confirmCardPayment()` or the Stripe Elements `confirmPayment()` method.
+    Do **not** send the `clientSecret` back to your server.
+
+    ```typescript
+    const result = await stripe.confirmCardPayment(clientSecret, {
+      payment_method: { card: cardElement }
+    });
+    if (result.error) {
+      console.error(result.error.message);
+    } else {
+      // Payment confirmed — reservation status becomes 'confirmed'
+    }
+    ```
+  </Step>
+</Steps>
+
+---
+
+## GET /payments/config
+
+Return the Stripe publishable key for the current environment. This key is safe to expose client-side.
+
+```
+GET https://ubik-back.duckdns.org/api/payments/config
+```
+
+<Note>
+  This endpoint requires authentication. The publishable key is environment-specific — development and production keys differ.
+</Note>
+
+### Response
+
+<ResponseField name="publishableKey" type="string">
+  The Stripe publishable key (begins with `pk_test_` in development, `pk_live_` in production).
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/payments/config \
+  -H "Authorization: Bearer <token>"
+```
+
+```json Response
+{
+  "publishableKey": "pk_test_51AbCdEfGhIjKlMnOpQrStUvWxYz"
+}
+```
+
+```typescript Angular (PaymentService)
+import { PaymentService } from '@core/services/payment.service';
+import type { StripeConfig } from '@core/services/payment.service';
+
+this.paymentService.getStripeConfig().subscribe(({ publishableKey }: StripeConfig) => {
+  const stripe = Stripe(publishableKey);
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /payments/create-intent
+
+Create a Stripe payment intent for a given reservation. Returns a `clientSecret` that must be used client-side to confirm the payment.
+
+```
+POST https://ubik-back.duckdns.org/api/payments/create-intent
+```
+
+<Note>
+  Requires authentication. The reservation must already exist (created via `POST /reservations`) before calling this endpoint.
+</Note>
+
+### Request body
+
+<ParamField path="reservationId" type="number" required>
+  ID of an existing reservation in `pending` status.
+</ParamField>
+
+<ParamField path="amountCop" type="number" required>
+  Payment amount in **Colombian Pesos (COP)** as an integer. The backend converts this to the smallest Stripe currency unit before sending to Stripe.
+</ParamField>
+
+### Response
+
+<ResponseField name="paymentId" type="number">
+  Internal Ubik payment record ID.
+</ResponseField>
+
+<ResponseField name="clientSecret" type="string">
+  Stripe client secret for confirming the payment on the client. Format: `pi_xxx_secret_yyy`.
+</ResponseField>
+
+<Warning>
+  The `clientSecret` is sensitive. **Never log it, store it, or send it to any server other than Stripe's.** Use it only to call `stripe.confirmCardPayment()` or equivalent Stripe SDK methods directly in the browser.
+</Warning>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/payments/create-intent \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"reservationId": 128, "amountCop": 300000}'
+```
+
+```json Response
+{
+  "paymentId": 55,
+  "clientSecret": "pi_3AbCdE2eZvKYlo2C1a2b3c4d_secret_5e6f7g8h9i0j"
+}
+```
+
+```typescript Angular (PaymentService)
+import { PaymentService } from '@core/services/payment.service';
+import type { CreatePaymentResponse } from '@core/services/payment.service';
+
+this.paymentService.createPaymentIntent(128, 300000)
+  .subscribe(({ paymentId, clientSecret }: CreatePaymentResponse) => {
+    // Pass clientSecret to Stripe SDK — do NOT store it
+    stripe.confirmCardPayment(clientSecret, {
+      payment_method: { card: cardElement }
+    });
+  });
+```
+
+</CodeGroup>
+
+---
+
+## Security Notes
+
+| Concern | Guidance |
+|---|---|
+| `clientSecret` exposure | Never include it in logs, analytics, or server-side storage |
+| Publishable key | Safe to embed in client bundles; it cannot be used to make charges |
+| Secret key | Never present in client code; lives exclusively on the backend |
+| Amount validation | Always re-validate `amountCop` server-side against the reservation's `total_price` |
+| HTTPS | All API traffic must use HTTPS — no HTTP fallback in production |

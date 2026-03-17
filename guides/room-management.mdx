@@ -1,0 +1,217 @@
+---
+title: "Room Management"
+description: "How to create, configure, price, and manage rooms for your motel on Ubik."
+---
+
+Rooms are the bookable units within your motel. This guide covers how to create and configure rooms, manage their images, assign amenities, and handle availability and pricing.
+
+<Note>
+  Your motel must have `approvalStatus: 'APPROVED'` before rooms are visible to guests. You can create rooms at any time, but they will only appear in search results once the motel is approved.
+</Note>
+
+## Creating a room
+
+From your owner dashboard, navigate to your motel and click **Add Room** (route: `/create-room?motelId=:id`).
+
+<Steps>
+  <Step title="Enter basic details">
+    Fill in the room information:
+
+    | Field | Required | Example |
+    |---|---|---|
+    | Number / Code | Yes | `A-101`, `Suite-3` |
+    | Room type | Yes | Select from the dropdown |
+    | Price per night | Yes | Must be greater than 0 |
+    | Description | Yes | Describe the room and its features |
+
+    **Room types** available:
+
+    | Type | Label |
+    |---|---|
+    | `STANDARD` | Standard |
+    | `SUITE` | Suite |
+    | `DELUXE` | Deluxe |
+    | `VIP` | VIP |
+  </Step>
+
+  <Step title="Upload room images">
+    Click **Subir imágenes** and select one or more photos of the room.
+
+    - Accepted formats: `jpg`, `png`, `webp`
+    - Maximum file size: **5 MB per image**
+    - At least **one image is required** — the form will not submit without one
+
+    Image previews appear below the file input. Use the **Quitar** button on each preview card to remove an image before submitting.
+
+    <Note>
+      Images are uploaded to Cloudinary under the path `motel_[id]/room_[number]` before the room record is created in the database. The resulting Cloudinary URLs are stored in the room's `imageUrls` array.
+    </Note>
+  </Step>
+
+  <Step title="Select amenities/services">
+    The services panel loads all available amenities from the Ubik backend. Each service shows its name, icon, and description.
+
+    - Click a service card to toggle it on or off
+    - At least **one service must be selected** — the form blocks submission otherwise
+    - The counter below the grid shows how many services are currently selected
+
+    <Tip>
+      Selecting more amenities increases your room's visibility in filtered searches. Common high-value amenities include Wi-Fi, air conditioning, parking, and jacuzzi.
+    </Tip>
+  </Step>
+
+  <Step title="Submit">
+    Click **Crear habitación** (or the button in the top-right action bar). The form:
+
+    1. Validates all required fields
+    2. Uploads images to Cloudinary
+    3. Sends the room payload to the backend
+    4. Redirects to `/listProperty` on success
+
+    If any step fails, an error banner appears at the top of the form with a description of what went wrong.
+  </Step>
+</Steps>
+
+## Room data model
+
+The full `Room` interface returned by the Ubik API:
+
+```typescript
+export interface Room {
+  id: number;
+  motelId: number;
+  motelName: string;
+  motelCity: string;
+  motelAddress: string;
+  motelPhoneNumber: string;
+  number: string;          // Room code, e.g. "A-101"
+  roomType: string;        // 'STANDARD' | 'SUITE' | 'DELUXE' | 'VIP'
+  price: number;           // Nightly rate
+  description: string;
+  imageUrls: string[];     // Cloudinary URLs
+  serviceIds: number[];    // IDs of assigned services
+  latitude: number;
+  longitude: number;
+  isAvailable: boolean;
+}
+```
+
+### Room images
+
+Room images are stored individually with ordering information:
+
+```typescript
+export interface RoomImage {
+  id: number;
+  url: string;          // Cloudinary URL
+  room_id: number;
+  order_index: number;  // Display order in the gallery
+}
+```
+
+### Services (amenities)
+
+Each service/amenity in the Ubik catalogue has the following shape:
+
+```typescript
+export interface Service {
+  id: number;
+  name: string;         // e.g. "Wi-Fi", "Air conditioning"
+  description: string;  // Short description shown on the service card
+  icon: string;         // Material Icons name used in the UI
+  created_at: Date;
+}
+```
+
+Services are assigned to rooms via a many-to-many relation:
+
+```typescript
+export interface RoomServiceRelation {
+  room_id?: Room[];
+  service_id: Service[];
+}
+```
+
+When creating a room, you supply `serviceIds: number[]` — an array of service IDs. The backend resolves these to the full `Service` objects when returning room details.
+
+## The room creation payload
+
+This is the exact object sent to the backend when you submit the Create Room form:
+
+```typescript
+export interface RoomCreatePayload {
+  motelId: number;
+  number: string;         // Room code
+  roomType: RoomType;     // 'STANDARD' | 'SUITE' | 'DELUXE' | 'VIP'
+  price: number;          // Must be > 0
+  description: string;
+  latitude?: null;        // Reserved for future use
+  longitude?: null;       // Reserved for future use
+  imageUrls: string[];    // Cloudinary URLs (uploaded before this call)
+  serviceIds: number[];   // At least one required
+}
+```
+
+## Pricing and availability
+
+<Tabs>
+  <Tab title="Setting a price">
+    Prices are set per room when creating or editing. The `price` field represents the **nightly rate** in local currency.
+
+    - Must be a positive number greater than 0
+    - The form shows a validation error if the value is missing or zero
+    - Guests see the price on the room card and the reservation summary
+
+    To change a room's price, edit the room from your dashboard and update the **Precio** field.
+  </Tab>
+  <Tab title="Availability">
+    The `isAvailable` flag on a room controls whether guests can book it:
+
+    | Value | Meaning |
+    |---|---|
+    | `true` | Room is open for reservations |
+    | `false` | Room is not bookable (e.g. under maintenance) |
+
+    Toggle availability from the room management view in your dashboard. Unavailable rooms are hidden from guest search results.
+  </Tab>
+</Tabs>
+
+## Editing a room
+
+From your property dashboard, select the room you want to edit and click **Edit**. All fields are editable:
+
+- Room number, type, price, and description
+- Images — add new photos or remove existing ones
+- Services — add or remove amenities
+
+Changes take effect immediately after saving. Room edits do not trigger a motel re-review.
+
+## Deleting a room
+
+<Warning>
+  Deleting a room is permanent. All associated images and reservation history for that room will also be removed. Make sure there are no **pending** or **confirmed** reservations before deleting a room.
+</Warning>
+
+To delete a room, open it from the dashboard and click **Delete room**. Confirm the prompt that appears.
+
+## Common errors and fixes
+
+| Error message | Cause | Fix |
+|---|---|---|
+| `Debes subir al menos una imagen de la habitación` | No images selected | Add at least one photo before submitting |
+| `Selecciona al menos 1 servicio` | No services checked | Toggle at least one amenity in the services panel |
+| `El precio debe ser mayor a 0` | Price is 0 or empty | Enter a valid positive price |
+| `El número es obligatorio` | Room code field is empty | Enter a room number or code (e.g. `A-101`) |
+| `No se pudieron subir las imágenes a Cloudinary` | Image upload failed | Check your internet connection and try again; ensure images are under 5 MB and are jpg/png/webp |
+| `No se encontró el ID del motel` | Missing motelId URL parameter | Navigate to the Create Room page from your motel's dashboard, not directly via URL |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Owner Guide" icon="user-tie" href="/guides/owner-guide">
+    Full end-to-end guide for setting up your owner account and going live on Ubik.
+  </Card>
+  <Card title="Motel Management" icon="building" href="/guides/motel-management">
+    Managing your motel listing, legal documents, images, and approval workflow.
+  </Card>
+</CardGroup>

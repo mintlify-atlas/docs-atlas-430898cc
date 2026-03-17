@@ -1,0 +1,588 @@
+---
+title: "Motels API"
+description: "Endpoints for listing, creating, updating, and managing motels and their images."
+---
+
+<Note>
+  Endpoints marked **Owner only** require a bearer token with `roleId: 3847261094857362`.
+  Public endpoints (`GET /motels`, `GET /motels/:id`) require no authentication.
+</Note>
+
+---
+
+## Motel Object
+
+<ResponseField name="id" type="number">
+  Unique motel ID.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Motel display name.
+</ResponseField>
+
+<ResponseField name="address" type="string">
+  Street address.
+</ResponseField>
+
+<ResponseField name="phoneNumber" type="string">
+  Contact phone number.
+</ResponseField>
+
+<ResponseField name="description" type="string | null">
+  Optional description of the motel.
+</ResponseField>
+
+<ResponseField name="city" type="string">
+  City where the motel is located.
+</ResponseField>
+
+<ResponseField name="propertyId" type="number">
+  ID of the owning property/account.
+</ResponseField>
+
+<ResponseField name="dateCreated" type="string">
+  ISO 8601 creation timestamp.
+</ResponseField>
+
+<ResponseField name="imageUrls" type="MotelImage[]">
+  Array of image objects attached to this motel.
+  <Expandable title="MotelImage properties">
+    <ResponseField name="id" type="number">
+      Image record ID.
+    </ResponseField>
+    <ResponseField name="url" type="string">
+      Cloudinary URL of the image.
+    </ResponseField>
+    <ResponseField name="role" type="'GALLERY' | 'COVER' | string">
+      Image role. `COVER` = hero/cover image; `GALLERY` = gallery entry.
+    </ResponseField>
+    <ResponseField name="sortOrder" type="number">
+      Display sort order (ascending).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="latitude" type="number | null">
+  Geographic latitude.
+</ResponseField>
+
+<ResponseField name="longitude" type="number | null">
+  Geographic longitude.
+</ResponseField>
+
+<ResponseField name="approvalStatus" type="'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED'">
+  Platform approval state. Only `APPROVED` motels appear in public listings.
+</ResponseField>
+
+<ResponseField name="approvalDate" type="string | null">
+  ISO 8601 timestamp of the last approval action.
+</ResponseField>
+
+<ResponseField name="approvedByUserId" type="number | null">
+  ID of the admin user who approved or rejected this motel.
+</ResponseField>
+
+<ResponseField name="rejectionReason" type="string | null">
+  Human-readable reason if `approvalStatus` is `REJECTED`.
+</ResponseField>
+
+<ResponseField name="rues" type="string | null">
+  RUES (business registry) number.
+</ResponseField>
+
+<ResponseField name="rnt" type="string | null">
+  RNT (national tourism registry) number.
+</ResponseField>
+
+<ResponseField name="ownerDocumentType" type="string">
+  Type of owner identification document (e.g. `CC`, `NIT`).
+</ResponseField>
+
+<ResponseField name="ownerDocumentNumber" type="string">
+  Owner identification document number.
+</ResponseField>
+
+<ResponseField name="ownerFullName" type="string">
+  Full legal name of the owner.
+</ResponseField>
+
+<ResponseField name="legalRepresentativeName" type="string">
+  Full name of the legal representative.
+</ResponseField>
+
+<ResponseField name="legalDocumentUrl" type="string | null">
+  URL to the uploaded legal document.
+</ResponseField>
+
+<ResponseField name="hasCompleteLegalInfo" type="boolean">
+  `true` when all required legal fields are present.
+</ResponseField>
+
+<ResponseField name="rooms" type="Room[]">
+  Optional array of rooms. Populated only on detail endpoints.
+</ResponseField>
+
+---
+
+## GET /motels
+
+Return all public motels. No authentication required.
+
+```
+GET https://ubik-back.duckdns.org/api/motels
+```
+
+### Response
+
+Array of [Motel](#motel-object) objects.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/motels
+```
+
+```typescript Angular (MotelService)
+import { MotelService } from '@core/services/motel.service';
+
+this.motelService.getAllMotels().subscribe((motels: Motel[]) => {
+  console.log(motels);
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /motels/:id
+
+Return a single motel by ID. No authentication required.
+
+```
+GET https://ubik-back.duckdns.org/api/motels/{id}
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  The motel's numeric ID.
+</ParamField>
+
+### Response
+
+A single [Motel](#motel-object) object.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/motels/42
+```
+
+```typescript Angular
+this.motelService.getMotelById(42).subscribe((motel: Motel) => {
+  console.log(motel.name);
+});
+```
+
+</CodeGroup>
+
+---
+
+## GET /auth/motels/my-motels
+
+Return all motels belonging to the authenticated owner.
+
+```
+GET https://ubik-back.duckdns.org/api/auth/motels/my-motels
+```
+
+<Note>
+  Requires authentication. Token is attached automatically by the `authInterceptor`.
+</Note>
+
+### Response
+
+Array of [Motel](#motel-object) objects owned by the current user.
+
+<CodeGroup>
+
+```bash curl
+curl https://ubik-back.duckdns.org/api/auth/motels/my-motels \
+  -H "Authorization: Bearer <token>"
+```
+
+```typescript Angular
+this.motelService.getMyMotels().subscribe((motels: Motel[]) => {
+  this.ownerMotels = motels;
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /motels
+
+Create a new motel. **Owner only.**
+
+```
+POST https://ubik-back.duckdns.org/api/motels
+```
+
+### Request body (`CreateMotelRequest`)
+
+<ParamField path="name" type="string" required>
+  Motel display name.
+</ParamField>
+
+<ParamField path="address" type="string" required>
+  Street address.
+</ParamField>
+
+<ParamField path="city" type="string" required>
+  City.
+</ParamField>
+
+<ParamField path="phoneNumber" type="string" required>
+  Contact phone number.
+</ParamField>
+
+<ParamField path="description" type="string">
+  Optional motel description.
+</ParamField>
+
+<ParamField path="latitude" type="number">
+  Geographic latitude.
+</ParamField>
+
+<ParamField path="longitude" type="number">
+  Geographic longitude.
+</ParamField>
+
+<ParamField path="ownerDocumentType" type="string" required>
+  Owner ID document type (e.g. `CC`, `NIT`).
+</ParamField>
+
+<ParamField path="ownerDocumentNumber" type="string" required>
+  Owner ID document number.
+</ParamField>
+
+<ParamField path="ownerFullName" type="string" required>
+  Owner's full legal name.
+</ParamField>
+
+<ParamField path="legalRepresentativeName" type="string" required>
+  Legal representative's full name.
+</ParamField>
+
+<ParamField path="rues" type="string">
+  RUES business registry number.
+</ParamField>
+
+<ParamField path="rnt" type="string">
+  RNT national tourism registry number.
+</ParamField>
+
+### Response
+
+The created [Motel](#motel-object) object with `approvalStatus: "PENDING"`.
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/motels \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Motel Las Palmas",
+    "address": "Calle 10 # 5-23",
+    "city": "Medellín",
+    "phoneNumber": "+5744001234",
+    "ownerDocumentType": "CC",
+    "ownerDocumentNumber": "1234567890",
+    "ownerFullName": "Carlos Perez",
+    "legalRepresentativeName": "Carlos Perez"
+  }'
+```
+
+```typescript Angular
+this.motelService.createMotel(payload).subscribe((motel: Motel) => {
+  console.log('Created:', motel.id);
+});
+```
+
+</CodeGroup>
+
+---
+
+## POST /motels/with-images
+
+Create a motel and attach images in a single request. **Owner only.**
+
+```
+POST https://ubik-back.duckdns.org/api/motels/with-images
+```
+
+Request body is the same as [POST /motels](#post-motels) but may include image metadata. Returns the created [Motel](#motel-object).
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/motels/with-images \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{ "name": "Motel Las Palmas", "...other fields": "...", "images": [] }'
+```
+
+```typescript Angular
+this.motelService.createMotelWithImages(payload).subscribe((motel: Motel) => {
+  console.log('Created with images:', motel.id);
+});
+```
+
+</CodeGroup>
+
+---
+
+## PUT /motels/:id
+
+Update an existing motel. **Owner only.**
+
+```
+PUT https://ubik-back.duckdns.org/api/motels/{id}
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  ID of the motel to update.
+</ParamField>
+
+### Request body
+
+Partial `CreateMotelRequest` — include only the fields to update.
+
+<CodeGroup>
+
+```bash curl
+curl -X PUT https://ubik-back.duckdns.org/api/motels/42 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"description": "Updated description"}'
+```
+
+```typescript Angular
+this.motelService.updateMotel(42, { description: 'Updated description' })
+  .subscribe((motel: Motel) => console.log(motel));
+```
+
+</CodeGroup>
+
+---
+
+## DELETE /motels/:id
+
+Permanently delete a motel. **Owner only.**
+
+```
+DELETE https://ubik-back.duckdns.org/api/motels/{id}
+```
+
+### Path parameters
+
+<ParamField path="id" type="number" required>
+  ID of the motel to delete.
+</ParamField>
+
+### Response
+
+`204 No Content`
+
+<Warning>
+  This action is irreversible. All associated rooms and images will also be deleted.
+</Warning>
+
+<CodeGroup>
+
+```bash curl
+curl -X DELETE https://ubik-back.duckdns.org/api/motels/42 \
+  -H "Authorization: Bearer <token>"
+```
+
+```typescript Angular
+this.motelService.deleteMotel(42).subscribe(() => console.log('Deleted'));
+```
+
+</CodeGroup>
+
+---
+
+## Image Management
+
+### POST /images/upload
+
+Upload a single image file to Cloudinary via the Ubik backend proxy. **Authenticated.**
+
+```
+POST https://ubik-back.duckdns.org/api/images/upload?folder=Ubik
+```
+
+#### Query parameters
+
+<ParamField path="folder" type="string">
+  Cloudinary folder name. Defaults to `Ubik`.
+</ParamField>
+
+#### Request body
+
+Multipart form data with a single `file` field.
+
+#### Response
+
+<ResponseField name="url" type="string">
+  Public Cloudinary URL of the uploaded image.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST "https://ubik-back.duckdns.org/api/images/upload?folder=Ubik" \
+  -H "Authorization: Bearer <token>" \
+  -F "file=@/path/to/image.jpg"
+```
+
+```typescript Angular
+this.motelService.uploadImage(file, 'Ubik').subscribe(({ url }) => {
+  console.log('Uploaded:', url);
+});
+```
+
+</CodeGroup>
+
+---
+
+### PUT /motels/:id/images/cover
+
+Set the cover image URL for a motel. **Owner only.**
+
+```
+PUT https://ubik-back.duckdns.org/api/motels/{id}/images/cover
+```
+
+<ParamField path="url" type="string" required>
+  Cloudinary URL to set as cover image (in request body).
+</ParamField>
+
+<CodeGroup>
+
+```bash curl
+curl -X PUT https://ubik-back.duckdns.org/api/motels/42/images/cover \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://res.cloudinary.com/du4tcug9q/image/upload/Ubik/cover.jpg"}'
+```
+
+```typescript Angular
+this.motelService.setCoverImage(42, imageUrl).subscribe();
+```
+
+</CodeGroup>
+
+---
+
+### PUT /motels/:id/images/profile
+
+Set the profile/thumbnail image URL for a motel. **Owner only.**
+
+```
+PUT https://ubik-back.duckdns.org/api/motels/{id}/images/profile
+```
+
+<ParamField path="url" type="string" required>
+  Cloudinary URL to use as the profile image (in request body).
+</ParamField>
+
+<CodeGroup>
+
+```bash curl
+curl -X PUT https://ubik-back.duckdns.org/api/motels/42/images/profile \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://res.cloudinary.com/du4tcug9q/image/upload/Ubik/profile.jpg"}'
+```
+
+```typescript Angular
+this.motelService.setProfileImage(42, imageUrl).subscribe();
+```
+
+</CodeGroup>
+
+---
+
+### POST /motels/:id/images
+
+Add multiple gallery images to a motel. **Owner only.** Accepts multipart form data.
+
+```
+POST https://ubik-back.duckdns.org/api/motels/{id}/images
+```
+
+#### Request body
+
+Multipart form data. Append each image file under the key `images`.
+
+#### Response
+
+<ResponseField name="count" type="number">
+  Number of images successfully added.
+</ResponseField>
+
+<ResponseField name="urls" type="string[]">
+  Cloudinary URLs of the added images.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl -X POST https://ubik-back.duckdns.org/api/motels/42/images \
+  -H "Authorization: Bearer <token>" \
+  -F "images=@photo1.jpg" \
+  -F "images=@photo2.jpg"
+```
+
+```typescript Angular
+this.motelService.addGalleryImages(42, [file1, file2]).subscribe(({ count, urls }) => {
+  console.log(`Added ${count} images`, urls);
+});
+```
+
+</CodeGroup>
+
+---
+
+### DELETE /motels/:id/images/:imageId
+
+Delete a specific image from a motel by its image record ID. **Owner only.**
+
+```
+DELETE https://ubik-back.duckdns.org/api/motels/{id}/images/{imageId}
+```
+
+#### Response
+
+<ResponseField name="ok" type="true">
+  Confirmation that the image was deleted.
+</ResponseField>
+
+<CodeGroup>
+
+```bash curl
+curl -X DELETE https://ubik-back.duckdns.org/api/motels/42/images/7 \
+  -H "Authorization: Bearer <token>"
+```
+
+```typescript Angular
+this.motelService.deleteImageById(42, 7).subscribe(({ ok }) => console.log(ok));
+```
+
+</CodeGroup>

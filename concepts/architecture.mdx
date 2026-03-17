@@ -1,0 +1,208 @@
+---
+title: "Architecture"
+description: "How Ubik is structured: Angular modular frontend, SSR with Angular Universal and Express, and a REST API backend."
+keywords: ["architecture", "angular", "ssr", "server-side rendering", "express", "routing", "modules"]
+---
+
+Ubik is a full-stack Angular application. The frontend is built with Angular's standalone component model, rendered server-side via Angular Universal (SSR), and served by an Express Node.js server. All dynamic data is fetched from a dedicated REST backend.
+
+## Directory structure
+
+The source lives under `src/app/` and is divided into four top-level directories:
+
+```
+src/
+├── app/
+│   ├── components/       # Shared, reusable UI components
+│   │   ├── card/
+│   │   ├── card-motel/
+│   │   ├── card-room/
+│   │   ├── filter-modal/
+│   │   ├── map/
+│   │   ├── payment-modal/
+│   │   └── ...           # 18 shared components total
+│   ├── core/             # Application-wide singletons
+│   │   ├── guards/       # Route guards (permissionGuard)
+│   │   ├── interceptors/ # HTTP interceptors (auth, debug)
+│   │   ├── models/       # TypeScript interfaces
+│   │   ├── services/     # Injectable services (auth, permission)
+│   │   └── utils/
+│   ├── layout/           # Shell components (header, footer, nav)
+│   └── views/            # Page-level routed components
+│       ├── dashboard/    # admin/ and owner/ dashboards
+│       ├── explore/
+│       ├── Forms/        # login, register, create-motel, create-room
+│       ├── home/
+│       ├── motel-profile/
+│       ├── payment/
+│       └── user-profile/
+├── environments/         # environment.ts / environment.prod.ts
+└── server.ts             # Express SSR entry point
+```
+
+| Directory | Purpose |
+|---|---|
+| `components/` | Reusable presentational components shared across views |
+| `core/` | Services, guards, interceptors, and models used app-wide |
+| `layout/` | Page shell — persistent navigation and footer |
+| `views/` | One subdirectory per route; each holds a page component |
+
+## Server-side rendering (SSR)
+
+Ubik uses **Angular Universal** via the `@angular/ssr/node` package. On the server, Angular renders each route to HTML before sending it to the browser, improving initial load time and search-engine indexability.
+
+The Express server in `src/server.ts` handles two concerns:
+
+1. **Static assets** — files from `dist/browser/` are served with a one-year `max-age` cache header.
+2. **SSR rendering** — all other requests are passed to `AngularNodeAppEngine`, which renders the Angular application and writes the response.
+
+```typescript
+// src/server.ts
+import {
+  AngularNodeAppEngine,
+  createNodeRequestHandler,
+  isMainModule,
+  writeResponseToNodeResponse,
+} from '@angular/ssr/node';
+import express from 'express';
+import { join } from 'node:path';
+
+const browserDistFolder = join(import.meta.dirname, '../browser');
+const app = express();
+const angularApp = new AngularNodeAppEngine();
+
+// 1. Serve static assets from /browser
+app.use(
+  express.static(browserDistFolder, {
+    maxAge: '1y',
+    index: false,
+    redirect: false,
+  }),
+);
+
+// 2. Hand all other requests to Angular
+app.use((req, res, next) => {
+  angularApp
+    .handle(req)
+    .then((response) =>
+      response ? writeResponseToNodeResponse(response, res) : next(),
+    )
+    .catch(next);
+});
+
+if (isMainModule(import.meta.url) || process.env['pm_id']) {
+  const port = process.env['PORT'] || 4000;
+  app.listen(port);
+}
+```
+
+<Note>
+  The server defaults to port **4000**. Override it with the `PORT` environment variable, for example when running behind a reverse proxy.
+</Note>
+
+On the client, Angular takes over via **hydration** (`provideClientHydration(withEventReplay())`), so interactive events are replayed without a full re-render.
+
+## Application bootstrap
+
+The Angular app is configured in `src/app/app.config.ts` using Angular's standalone provider API:
+
+```typescript
+// src/app/app.config.ts
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideBrowserGlobalErrorListeners(),
+    provideZonelessChangeDetection(),           // Signals-based, no Zone.js
+    provideRouter(routes, withInMemoryScrolling({ scrollPositionRestoration: 'top' })),
+    provideClientHydration(withEventReplay()),   // SSR hydration
+    provideHttpClient(withFetch(), withInterceptors([authInterceptor])),
+    provideAppInitializer(() => inject(AuthService).restoreSession()), // auth on start
+  ],
+};
+```
+
+Key decisions:
+
+- **Zoneless change detection** — the app uses Angular signals instead of Zone.js for reactivity.
+- **`provideAppInitializer`** — `AuthService.restoreSession()` runs before the first route renders, ensuring the user's session is available to all guards.
+- **`withFetch()`** — the `HttpClient` uses the native `fetch` API, which is compatible with SSR.
+
+## Data flow
+
+```
+User interaction
+      │
+      ▼
+  Component          (views/ or components/)
+      │  calls
+      ▼
+   Service           (core/services/)
+      │  HTTP via
+      ▼
+authInterceptor      (core/interceptors/) — attaches Bearer token
+      │
+      ▼
+  Backend API        (ubik-back.duckdns.org)
+      │
+      ▼
+  Component          updates via Observable / Signal
+```
+
+Components never call the backend directly. They delegate to services, which use `HttpClient`. The `authInterceptor` automatically attaches the JWT to every outbound request destined for the Ubik backend.
+
+## Routing
+
+All routes are defined in `src/app/app.routes.ts` as a flat array:
+
+| Path | Component | Guard |
+|---|---|---|
+| `/` | `Home` | — |
+| `/explore` | `Explore` | — |
+| `/motelProfile/:id` | `MotelProfile` | — |
+| `/roominfo` | `ProductRoom` | — |
+| `/rooms-motel` | `RoomsMotel` | — |
+| `/rooms-offerts` | `RoomsOfferts` | — |
+| `/login` | `LoginComponent` | — |
+| `/register-user` | `RegisterUser` | — |
+| `/register-owner` | `RegisterOwner` | — |
+| `/select-register` | `RegisterSelect` | — |
+| `/forgot-password` | `ForgotPasswordComponent` | — |
+| `/dashboard/admin` | `DashboardAdmin` | `permissionGuard('view_dashboard')` |
+| `/dashboard/owner` | `DashboardOwner` | `permissionGuard('view_dashboard')` |
+| `/create-motel` | `CreateMotelComponent` | — |
+| `/create-room` | `CreateRoomComponent` | — |
+| `/userProfile` | `UserProfile` | — |
+| `/edit-profile` | `EditProfileComponent` | — |
+| `/payment/success` | `PaymentSuccessComponent` | — |
+| `/payment/failure` | `PaymentFailureComponent` | — |
+| `/**` | — | Redirects to `/` |
+
+Routes that require a logged-in user with the right role use `permissionGuard`. See [User roles](/concepts/user-roles) for the permission model.
+
+## Environment configuration
+
+Runtime configuration is split between two environment files:
+
+| File | Used when |
+|---|---|
+| `src/environments/environment.ts` | `ng serve` (development) |
+| `src/environments/environment.prod.ts` | `ng build --configuration production` |
+
+At minimum both files export:
+
+```typescript
+export const environment = {
+  production: false,         // true in the prod file
+  authUrl: 'https://ubik-back.duckdns.org/auth',
+};
+```
+
+The `debugInterceptor` reads `environment.production` and is only active in development builds — it logs every HTTP response and error to the browser console.
+
+<CardGroup cols={2}>
+  <Card title="User roles" icon="users" href="/concepts/user-roles">
+    How Admin, Owner, and Client roles are defined and enforced.
+  </Card>
+  <Card title="Authentication" icon="lock" href="/concepts/authentication">
+    JWT flow, token storage, and session restoration.
+  </Card>
+</CardGroup>

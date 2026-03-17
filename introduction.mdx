@@ -1,0 +1,79 @@
+---
+title: "Introduction"
+description: "Ubik is a progressive web app for motel discovery, booking, and management — built for owners, clients, and administrators."
+---
+
+## What is Ubik?
+
+Ubik is a full-stack **motel booking and management platform** built as a Progressive Web App (PWA). It connects motel owners who want to list and manage their properties with clients looking to browse availability and make secure reservations — all from a single, mobile-first interface.
+
+The platform is backed by a RESTful API (`https://ubik-back.duckdns.org/api`) and supports three distinct user roles with granular permissions, interactive maps, and integrated Stripe payments.
+
+## Who is Ubik for?
+
+<CardGroup cols={3}>
+  <Card title="Motel Owners" icon="building">
+    Register your establishment, manage rooms and amenities, set promotions, and track incoming reservations from a dedicated owner dashboard.
+  </Card>
+  <Card title="Clients" icon="user">
+    Discover nearby motels using an interactive map, check room availability, and complete bookings securely online.
+  </Card>
+  <Card title="Administrators" icon="shield-halved">
+    Oversee all platform activity, manage users and properties, and monitor system health from a privileged admin dashboard.
+  </Card>
+</CardGroup>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Interactive map exploration" icon="map-location-dot">
+    Leaflet-powered maps show motel locations relative to the user's geolocation in real time.
+  </Card>
+  <Card title="Role-based access control" icon="lock">
+    Three roles — Admin, Owner, and Client — each with tailored views and route-level permission guards.
+  </Card>
+  <Card title="Secure payments" icon="credit-card">
+    Stripe integration handles reservation payments with success and failure redirect flows.
+  </Card>
+  <Card title="Owner dashboard" icon="gauge-high">
+    Owners can create motels, add rooms with amenities, manage offers, and review reservations.
+  </Card>
+  <Card title="Progressive Web App" icon="mobile-screen">
+    Installable on any device. The mobile-first UI adapts seamlessly from phone to desktop.
+  </Card>
+  <Card title="Server-side rendering" icon="server">
+    Angular Universal + Express delivers fast initial page loads and improved SEO.
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+| Technology | Version | Role |
+|---|---|---|
+| Angular | 20 | Frontend framework |
+| TypeScript | ~5.9 | Typed application language |
+| Tailwind CSS | 4 | Utility-first styling |
+| PrimeNG | 20 | UI component library |
+| Leaflet | 1.9 | Interactive maps |
+| Stripe.js | 8 | Payment processing |
+| RxJS | 7.8 | Reactive state and HTTP |
+| Angular Universal | 20 | Server-side rendering |
+| Express | 5 | SSR server |
+| pnpm | 10 | Package manager |
+
+## Explore the docs
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get the app running locally in under 5 minutes.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Full setup guide with environment configuration and build commands.
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand the project structure and module layout.
+  </Card>
+  <Card title="User roles" icon="users" href="/concepts/user-roles">
+    Learn how Admin, Owner, and Client roles work.
+  </Card>
+</CardGroup>

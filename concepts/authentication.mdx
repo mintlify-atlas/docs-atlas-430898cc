@@ -1,0 +1,283 @@
+---
+title: "Authentication"
+description: "Ubik uses JWT-based authentication with localStorage persistence, automatic expiry, and cross-tab logout synchronization."
+keywords: ["authentication", "jwt", "token", "login", "logout", "session", "interceptor", "localStorage"]
+---
+
+`AuthService` (`src/app/core/services/auth.service.ts`) manages the full authentication lifecycle: storing tokens, validating expiry, restoring sessions on page load, and triggering logout automatically.
+
+## Storage keys
+
+Three `localStorage` keys hold the session state:
+
+| Key | Value |
+|---|---|
+| `auth_token` | The raw JWT string (Bearer prefix stripped) |
+| `user` | JSON-serialized user object |
+| `auth_expires_at` | Unix timestamp (ms) when the token expires |
+
+```typescript
+// src/app/core/services/auth.service.ts
+private readonly TOKEN_KEY   = 'auth_token';
+private readonly USER_KEY    = 'user';
+private readonly EXPIRES_KEY = 'auth_expires_at';
+private readonly DEFAULT_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+```
+
+## Token expiry
+
+When a token is stored, `AuthService` determines its expiry time using this priority:
+
+1. **`auth_expires_at` in `localStorage`** — used if already present and valid.
+2. **JWT `exp` claim** — the token is decoded and `exp * 1000` is used as the expiry timestamp.
+3. **Default TTL** — if neither is available, expiry is set to `Date.now() + 24h`.
+
+```typescript
+private getExpiresAtFromStorageOrToken(token: string): number | null {
+  const raw = localStorage.getItem(this.EXPIRES_KEY);
+  const stored = raw ? Number(raw) : NaN;
+  if (!Number.isNaN(stored) && stored > 0) return stored;
+
+  // Fall back to JWT exp claim, then to 24h default
+  const fromJwt = this.getJwtExpMs(token);
+  return fromJwt ?? (Date.now() + this.DEFAULT_TTL_MS);
+}
+```
+
+<Note>
+  If your backend issues tokens with an `exp` claim, Ubik will honor it exactly. The 24-hour default only applies when the token has no `exp` claim and no persisted expiry exists.
+</Note>
+
+## Session restoration on app init
+
+`restoreSession()` is called by Angular's `provideAppInitializer` before any route renders. This means route guards always have an initialized `AuthService` to work with.
+
+```typescript
+// src/app/app.config.ts
+provideAppInitializer(() => inject(AuthService).restoreSession())
+```
+
+<Steps>
+  <Step title="Read token from localStorage">
+    The raw value of `auth_token` is read and normalized (Bearer prefix and surrounding quotes removed).
+  </Step>
+  <Step title="Validate expiry">
+    If no token exists, or if the token has already expired, `logout()` is called immediately and the service marks itself as initialized.
+  </Step>
+  <Step title="Set token and schedule auto-logout">
+    A valid token is set on the `_token` signal. A `setTimeout` is registered to call `logout()` when the token expires.
+  </Step>
+  <Step title="Fetch user from /me">
+    If no user object is already in memory, the service calls `GET /auth/me` with the token. A `401` or `403` response triggers `logout()`; other errors are logged as warnings but the session is kept.
+  </Step>
+  <Step title="Mark as initialized">
+    `_initialized` is set to `true` in the `finally` block, regardless of success or failure. Route guards wait for this signal before running.
+  </Step>
+</Steps>
+
+```typescript
+async restoreSession(): Promise<void> {
+  if (!this.isBrowser) {
+    this._initialized.set(true);
+    return;
+  }
+
+  const rawToken = localStorage.getItem(this.TOKEN_KEY);
+  const token = rawToken ? this.normalizeToken(rawToken) : null;
+
+  if (!token) {
+    this._initialized.set(true);
+    return;
+  }
+
+  const expiresAt = this.getExpiresAtFromStorageOrToken(token);
+  if (!expiresAt || Date.now() >= expiresAt) {
+    this.logout();
+    this._initialized.set(true);
+    return;
+  }
+
+  this._token.set(token);
+  this.persistExpiresAt(expiresAt);
+  this.scheduleAutoLogout(expiresAt);
+
+  if (this._user()) {
+    this._initialized.set(true);
+    return;
+  }
+
+  try {
+    const me = await firstValueFrom(this.http.get<any>(`${environment.authUrl}/me`));
+    this.setUser(me);
+  } catch (err: any) {
+    const status = err?.status;
+    if (status === 401 || status === 403) {
+      this.logout();
+    } else {
+      console.warn('restoreSession: falló /me, pero se mantiene el token', err);
+    }
+  } finally {
+    this._initialized.set(true);
+  }
+}
+```
+
+## Login flow
+
+Your login component calls `AuthService.setToken()` and `AuthService.setUser()` after a successful credential exchange with the backend:
+
+```typescript
+// Typical login component usage
+const response = await firstValueFrom(
+  this.http.post<{ token: string; user: any }>(`${environment.authUrl}/login`, credentials)
+);
+
+this.authService.setToken(response.token);
+this.authService.setUser(response.user);
+```
+
+`setToken()` does the following:
+
+1. Strips any `Bearer ` prefix and surrounding quotes from the raw token.
+2. Writes the cleaned token to `localStorage` under `auth_token`.
+3. Computes the expiry from the JWT `exp` claim or falls back to `Date.now() + 24h`.
+4. Persists the expiry timestamp to `localStorage` under `auth_expires_at`.
+5. Schedules a `setTimeout` to call `logout()` at expiry.
+
+## Logout flow
+
+```typescript
+logout() {
+  this._user.set(null);
+  this._token.set(null);
+
+  if (this.isBrowser) {
+    if (this.logoutTimer) {
+      clearTimeout(this.logoutTimer);
+      this.logoutTimer = null;
+    }
+
+    localStorage.removeItem(this.TOKEN_KEY);    // 'auth_token'
+    localStorage.removeItem(this.EXPIRES_KEY);  // 'auth_expires_at'
+    localStorage.removeItem(this.USER_KEY);     // 'user'
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem(this.TOKEN_KEY);
+  }
+}
+```
+
+Logout clears all in-memory signals and removes all three storage keys.
+
+## Auto-logout and tab synchronization
+
+The service registers three browser event listeners in the constructor:
+
+| Event | Handler |
+|---|---|
+| `document visibilitychange` (visible) | Checks expiry and logs out if the token has expired while the tab was in the background |
+| `window focus` | Same expiry check, in case the system clock advanced |
+| `window storage` — `auth_token` removed | Calls `logout()` immediately, so all open tabs log out together |
+| `window storage` — `auth_expires_at` changed | Re-checks expiry in the current tab |
+
+```typescript
+// Cross-tab logout sync
+window.addEventListener('storage', (e) => {
+  if (e.key === this.TOKEN_KEY && !e.newValue) this.logout();
+  if (e.key === this.EXPIRES_KEY) this.checkExpiryAndLogoutIfNeeded();
+});
+```
+
+<Tip>
+  The `storage` event fires in every tab **except** the one that wrote the change. This means logging out in one tab automatically logs out all other open tabs.
+</Tip>
+
+## HTTP interceptors
+
+Two functional interceptors are registered in `app.config.ts`:
+
+```typescript
+provideHttpClient(withFetch(), withInterceptors([authInterceptor]))
+```
+
+<AccordionGroup>
+  <Accordion title="authInterceptor">
+    Located at `src/app/core/interceptors/auth-interceptor.ts`.
+
+    Attaches the JWT as a `Bearer` token to every outbound request that targets the Ubik backend. It skips:
+
+    - `OPTIONS` preflight requests
+    - SSR (non-browser) contexts
+    - Requests that already have an `Authorization` header
+    - Cloudinary upload endpoints (`api.cloudinary.com`)
+    - Public auth endpoints: `/auth/login`, `/auth/register`
+
+    ```typescript
+    export const authInterceptor: HttpInterceptorFn = (req, next) => {
+      // ... skip OPTIONS, SSR, existing Authorization, Cloudinary, public endpoints
+
+      const isOurApi =
+        req.url.includes('ubik-back.duckdns.org') ||
+        req.url.includes('localhost') ||
+        !req.url.startsWith('http');
+
+      if (!isOurApi) return next(req);
+
+      const token = authService.token();
+      if (!token) return next(req);
+
+      return next(
+        req.clone({
+          setHeaders: { Authorization: `Bearer ${token}` },
+        })
+      );
+    };
+    ```
+  </Accordion>
+  <Accordion title="debugInterceptor">
+    Located at `src/app/core/interceptors/debug-interceptor.ts`.
+
+    Active only in development builds (`environment.production === false`). Logs a summary line for every HTTP response and a detailed error message for failures.
+
+    ```typescript
+    export const debugInterceptor: HttpInterceptorFn = (req, next) => {
+      if (environment.production) return next(req);
+
+      return next(req).pipe(
+        tap({
+          next: (event) => {
+            if (event instanceof HttpResponse) {
+              console.log(`${resource} — ${req.method} ${req.urlWithParams} (${event.status})`);
+            }
+          },
+          error: (err) => {
+            console.error(
+              `❌ ${resource} — ${req.method} ${req.urlWithParams}\n` +
+              `   Status: ${err.status} ${err.statusText}\n` +
+              `   Message: ${err.error?.message ?? err.message ?? 'Unknown error'}`
+            );
+          },
+        }),
+      );
+    };
+    ```
+
+    <Note>The `debugInterceptor` is not registered in `app.config.ts` by default. Add it to the `withInterceptors([...])` array to enable it during development.</Note>
+  </Accordion>
+</AccordionGroup>
+
+## SSR considerations
+
+The `AuthService` constructor checks `isPlatformBrowser(platformId)` before accessing `localStorage` or registering browser events. On the server, none of the storage or timer logic runs — the service immediately reports as initialized with no user.
+
+<Warning>
+  Never access `localStorage` directly in Angular code that may run on the server. Always inject `PLATFORM_ID` and guard with `isPlatformBrowser()`, as `AuthService` does.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="User roles" icon="users" href="/concepts/user-roles">
+    How role IDs map to permissions and route guards.
+  </Card>
+  <Card title="Architecture" icon="layer-group" href="/concepts/architecture">
+    Application structure, SSR setup, and data flow.
+  </Card>
+</CardGroup>

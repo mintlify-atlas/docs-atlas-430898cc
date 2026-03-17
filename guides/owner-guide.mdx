@@ -1,0 +1,149 @@
+---
+title: "Owner Guide"
+description: "End-to-end guide for motel owners on the Ubik platform — from registration to going live with your property."
+---
+
+This guide walks you through everything you need to do as a motel owner on Ubik: creating your account, registering your property, adding rooms, and going live so guests can start booking.
+
+<CardGroup cols={2}>
+  <Card title="Motel Management" icon="building" href="/guides/motel-management">
+    Deep dive into creating and managing your motel listing, images, and legal documents.
+  </Card>
+  <Card title="Room Management" icon="bed" href="/guides/room-management">
+    How to add, configure, price, and manage rooms for your motel.
+  </Card>
+</CardGroup>
+
+## Getting started
+
+<Steps>
+  <Step title="Register as an owner">
+    Go to the Ubik registration page and select **Establecimiento** (Establishment/Owner) when prompted to choose your account type.
+
+    Fill in the owner registration form with:
+    - **Username** — minimum 3 characters, must be unique
+    - **Email** — a valid email address you can verify
+    - **Phone number** — 7–15 digits, international format supported (e.g. `+573001234567`)
+    - **Date of birth** — you must be at least 18 years old
+    - **Password** — minimum 8 characters
+    - **Confirm password** — must match your chosen password
+
+    Optionally, click **Obtener ubicación actual** to capture your current GPS coordinates. This helps Ubik surface your property to nearby guests.
+
+    <Note>
+      Owner accounts are assigned `roleId: 2` internally, which unlocks the property management dashboard and the ability to create motels.
+    </Note>
+  </Step>
+
+  <Step title="Verify your account">
+    After submitting the registration form, you will be redirected to the login page. Check your email inbox for a verification message from Ubik and follow the link to confirm your address.
+
+    Once verified, log in with your username and password. Tick **Remember me** if you want to stay logged in on this device.
+  </Step>
+
+  <Step title="Add your motel">
+    From your dashboard, navigate to **Create Motel**. You will need to complete four sections:
+
+    **Basic details**
+    - Motel name (required, minimum 3 characters)
+    - Full street address (required)
+    - City (required)
+    - Phone number (optional)
+    - Description (optional but strongly recommended)
+
+    **Location**
+    Click **Obtener ubicación actual** to auto-fill latitude and longitude, or enter coordinates manually. Accurate coordinates are used to display your motel on the map.
+
+    **Images**
+    - Upload a **cover/profile photo** (required) — this is the main image guests see in search results
+    - Upload additional **gallery images** (optional) — select multiple files at once
+
+    **Legal documents & owner info**
+    - **RNT** — Registro Nacional de Turismo certificate (required, image file)
+    - **RUES** — Registro Único Empresarial y Social (required, image file)
+    - **Legal document** — additional ownership document (optional, image or PDF)
+    - Owner document type: `CC`, `NIT`, `CE`, or `PASAPORTE`
+    - Owner document number (required)
+    - Owner full name (required)
+    - Legal representative name (optional)
+
+    Click **Crear motel** when all required fields are complete.
+
+    <Warning>
+      Both RNT and RUES files are **required** before you can submit. The form will block submission and show an error if either is missing.
+    </Warning>
+  </Step>
+
+  <Step title="Wait for approval">
+    After submission, your motel enters the review queue. The approval lifecycle has four statuses:
+
+    | Status | Meaning |
+    |---|---|
+    | `PENDING` | Submitted, awaiting initial review |
+    | `UNDER_REVIEW` | An admin is actively reviewing your application |
+    | `APPROVED` | Your motel is live and visible to guests |
+    | `REJECTED` | The application was declined — see `rejectionReason` for details |
+
+    You will be notified by email when your status changes. If rejected, review the reason provided and resubmit with the corrected information.
+
+    <Tip>
+      Speed up approval by ensuring your RNT and RUES documents are clear, legible scans. Blurry or incomplete documents are the most common rejection reason.
+    </Tip>
+  </Step>
+
+  <Step title="Add rooms">
+    Once your motel status is `APPROVED`, you can add rooms from your property dashboard. Navigate to your motel and click **Add Room**.
+
+    For each room you need:
+    - A room number or code (e.g. `A-101`)
+    - Room type: `STANDARD`, `SUITE`, `DELUXE`, or `VIP`
+    - Price per night (must be greater than 0)
+    - Description
+    - At least one photo (jpg, png, or webp — max 5 MB each)
+    - At least one amenity/service selected from the list
+
+    See the [Room Management guide](/guides/room-management) for full details.
+  </Step>
+
+  <Step title="Go live">
+    With at least one approved room added, your motel becomes fully discoverable by guests in Ubik's explore and search pages.
+
+    Guests can view your motel on the map, browse your room gallery, check amenities, and make reservations.
+
+    Keep your listing accurate by updating room availability, prices, and photos regularly. See [Motel Management](/guides/motel-management) for editing options.
+  </Step>
+</Steps>
+
+## Tips for getting approved quickly
+
+<CardGroup cols={2}>
+  <Card title="RNT — Registro Nacional de Turismo" icon="certificate">
+    Obtain your RNT from **Confecámaras** or the Tourism Ministry portal. Your certificate must be current (not expired) and clearly show your establishment name and registration number.
+  </Card>
+  <Card title="RUES — Registro Único Empresarial" icon="file-contract">
+    Download your RUES certificate directly from the **Confecámaras** website. Ensure the business name and NIT/CC on the certificate match the details you enter in the form exactly.
+  </Card>
+  <Card title="Document quality" icon="image">
+    Scan or photograph all documents in good lighting. Files must be legible — reviewers need to read registration numbers and dates. PDF or a high-resolution image (JPG/PNG) is preferred.
+  </Card>
+  <Card title="Complete legal info" icon="id-card">
+    Fill in the legal representative field if your establishment operates under a company. Mismatches between the registered owner and the legal representative are a common delay cause.
+  </Card>
+</CardGroup>
+
+<Note>
+  The `hasCompleteLegalInfo` flag on your motel is set automatically by the platform once RNT, RUES, owner document, and owner name are all present. Admins use this flag during review — make sure all fields are filled before submitting.
+</Note>
+
+## Managing your account profile
+
+You can update your personal details at any time from the **Edit Profile** page:
+
+- Username, email, and phone number
+- Date of birth
+- Location (latitude/longitude) — used for proximity-based features
+- Anonymous mode — hides your public profile details from guests
+
+<Warning>
+  Deleting your profile is permanent and cannot be undone. All associated motels and rooms will also be removed. You will be logged out immediately after deletion.
+</Warning>

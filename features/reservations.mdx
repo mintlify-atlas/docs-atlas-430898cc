@@ -1,0 +1,140 @@
+---
+title: "Reservations"
+description: "End-to-end reservation flow — from picking a room to receiving a confirmation code."
+---
+
+Ubik uses an hourly booking model. Clients select a room, pick a date and time window, and pay through Stripe. A confirmation code and QR are issued immediately on success.
+
+## Reservation Flow
+
+<Steps>
+  <Step title="Browse and select a room">
+    The client finds a room on the [Explore](/features/explore-motels) page or through a motel's profile page (`/motelProfile/:id`). Each room card shows type, price per hour, availability status, and amenities.
+  </Step>
+
+  <Step title="Open the booking modal">
+    Clicking **Reserve** on a room card opens the `PaymentModal` dialog. No login is required to open the modal — but attempting to proceed without a session redirects to `/login`.
+  </Step>
+
+  <Step title="Pick a date">
+    The modal renders an interactive calendar. Past dates and already-booked time slots are visually disabled. The calendar can switch between month and week views.
+  </Step>
+
+  <Step title="Select check-in and check-out times">
+    After selecting a date, the client picks an entry time (08:00–23:00) and an exit time. Exit can be on the same day or carry into early the next morning (00:00–07:00). Slots blocked by confirmed or pending reservations are grayed out.
+
+    ```typescript
+    readonly ALL_SLOTS = [
+      '08:00', '09:00', '10:00', '11:00', '12:00', '13:00',
+      '14:00', '15:00', '16:00', '17:00', '18:00', '19:00',
+      '20:00', '21:00', '22:00', '23:00',
+    ];
+    ```
+
+    The total stay and price are computed in real time:
+    ```typescript
+    get totalHours(): number {
+      // Handles midnight crossing automatically
+      if (this.crossesMidnight) return 24 - startHour + endHour;
+      return endHour - startHour;
+    }
+
+    get totalPrice(): number {
+      return (this.room?.price ?? 0) * this.totalHours;
+    }
+    ```
+  </Step>
+
+  <Step title="Availability check">
+    When the client selects the exit time, the app calls `GET /rooms/:id/availability` with the chosen date, start time, and end time. A success indicator is displayed before the client can proceed.
+  </Step>
+
+  <Step title="Confirm and pay">
+    The client taps **Confirm Reservation**. The app creates the reservation record and then initialises a Stripe Payment Intent. See [Payments](/features/payments) for the full payment flow.
+  </Step>
+
+  <Step title="Receive confirmation">
+    On successful payment, the modal closes and the client is navigated to `/payment/success`. The page shows:
+    - Total paid (formatted in COP)
+    - Date, check-in time, check-out time
+    - Room name
+    - Confirmation code and a QR code for express entry
+  </Step>
+</Steps>
+
+## Reservation Data Model
+
+```typescript
+export interface Reservation {
+  id: number;
+  motel_id: number;
+  room_id: number;
+  user_id: number;
+  total_price: number;
+  start_date: Date;          // Full ISO datetime (includes time)
+  end_date: Date;            // Full ISO datetime (includes time)
+  status: 'pending' | 'confirmed' | 'cancelled';
+  special_requests: string;
+  created_at: Date;
+  updated_at: Date;
+}
+```
+
+<Note>
+  `start_date` and `end_date` store full datetimes (not just dates), so overnight bookings that cross midnight are represented accurately as two separate calendar dates.
+</Note>
+
+## Room Availability Model
+
+Active reservations for a room on a given date are fetched as:
+
+```typescript
+export interface RoomReservation {
+  id: number;
+  room_id: number;
+  start_date: string;
+  start_time: string;   // e.g. "14:00"
+  end_time: string;     // e.g. "18:00"
+  status: 'pending' | 'confirmed' | 'cancelled';
+}
+```
+
+Only reservations with `status === 'confirmed'` or `status === 'pending'` block time slots in the UI.
+
+## Confirmation Code
+
+After the reservation is created, the API response may include a `confirmationCode`. The code format is:
+
+```
+260310-0001-F8B
+```
+
+- First segment: date the booking was made (`YYMMDD`)
+- Second segment: sequence number for the day
+- Third segment: short hash for uniqueness
+
+Only the sequence number (`0001`) is shown prominently in the UI and encoded in the QR code as `UBIK-0001`. The full code is displayed below the QR for manual entry at reception.
+
+## Availability Notification
+
+If a room is currently unavailable, the room detail page (`/rooms/:id`) shows a notification form. The client enters their email and is notified via `POST /rooms/:id/notify-available` when the room becomes available again.
+
+## Cancellation
+
+<Warning>
+  Reservation cancellation is not yet exposed in the client UI. The `status` field on `Reservation` supports `'cancelled'`, but a self-service cancellation flow is pending implementation.
+</Warning>
+
+## Frequently Asked Questions
+
+<Accordion title="Do I need an account to browse rooms?">
+  No. Browsing, filtering, and checking availability are all public. An account is only required at the payment step.
+</Accordion>
+
+<Accordion title="Can I book a room that crosses midnight?">
+  Yes. Select an entry time (e.g. 22:00) and then choose an exit time from the "next-day" slots (00:00–07:00). The total hours and price are calculated correctly across the midnight boundary.
+</Accordion>
+
+<Accordion title="What happens if payment fails after the reservation is created?">
+  The reservation is created with `status: 'pending'` before payment is attempted. If payment fails, the reservation remains pending. You can retry by starting the booking flow again — the UI navigates to `/payment/failure` and offers a direct link back to Explore.
+</Accordion>

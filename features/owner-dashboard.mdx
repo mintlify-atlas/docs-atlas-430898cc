@@ -1,0 +1,175 @@
+---
+title: "Owner Dashboard"
+description: "Manage your motels, rooms, reservations, and track daily revenue from the owner dashboard."
+---
+
+The Owner Dashboard is the central control panel for motel owners. It is accessible at `/dashboard/owner` and requires the `view_dashboard` permission, which is granted to users with the **owner** role.
+
+<Note>
+  Access is controlled by `permissionGuard('view_dashboard')`. Users without this permission are redirected away from the route automatically.
+</Note>
+
+## Dashboard Overview
+
+The summary panel at the top of the dashboard shows live metrics:
+
+| Metric | Description |
+|---|---|
+| Motels | Total number of motels registered under your account |
+| Reservas Hoy | Number of reservations for the current day |
+| Ingresos Hoy | Revenue generated today in COP |
+
+## Dashboard Sections
+
+<CardGroup cols={2}>
+  <Card title="My Motels" icon="building">
+    Lists all motels owned by the authenticated user. Each motel shows its approval status, cover image, city, and address. From here you can navigate to a motel's profile to edit details or manage rooms.
+  </Card>
+  <Card title="Create Motel" icon="plus-circle">
+    Opens the multi-step motel creation form. Requires filling in property details, legal information, and uploading at least one image before submission.
+  </Card>
+  <Card title="Manage Rooms" icon="bed">
+    Create, edit, and delete rooms for any of your approved motels. Rooms can have custom pricing, types, services, and images.
+  </Card>
+  <Card title="Reservations" icon="calendar">
+    View upcoming and past reservations across all your properties.
+  </Card>
+</CardGroup>
+
+## Motel Approval Workflow
+
+Every new motel goes through a review process before it appears in public search results.
+
+<Steps>
+  <Step title="Owner submits motel">
+    The owner completes the Create Motel form and submits. The motel is created with `approvalStatus: 'PENDING'`.
+  </Step>
+  <Step title="Platform review">
+    An admin reviews the submission. The status transitions to `'UNDER_REVIEW'` when the review begins.
+  </Step>
+  <Step title="Approved or Rejected">
+    The admin either approves the motel (`'APPROVED'`) — making it publicly visible — or rejects it (`'REJECTED'`) with a reason stored in `rejectionReason`.
+  </Step>
+</Steps>
+
+```typescript
+approvalStatus: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+rejectionReason: string | null;   // Populated on rejection
+approvalDate: string | null;      // ISO date of approval/rejection
+approvedByUserId: number | null;  // Admin user ID
+```
+
+The motel profile page displays the current status as a colour-coded badge:
+
+| Status | Badge colour |
+|---|---|
+| `APPROVED` | Green |
+| `PENDING` | Yellow |
+| `UNDER_REVIEW` | Yellow |
+| `REJECTED` | Red |
+
+<Warning>
+  Only `APPROVED` motels are returned by the public `GET /motels` endpoint used on the Explore page. Motels in any other status are not visible to clients.
+</Warning>
+
+## Legal Information Requirements
+
+To list a motel on Ubik, owners must provide complete legal documentation. These fields are required in the `CreateMotelRequest`:
+
+```typescript
+export interface CreateMotelRequest {
+  name: string;
+  address: string;
+  phoneNumber: string | null;
+  description: string | null;
+  city: string;
+  propertyId: number;
+  latitude: number | null;
+  longitude: number | null;
+
+  // Legal identifiers
+  rues: string;                           // Registro Único Empresarial y Social
+  rnt: string;                            // Registro Nacional de Turismo
+
+  // Owner identity
+  ownerDocumentType: 'CC' | 'NIT' | 'CE' | 'PASAPORTE';
+  ownerDocumentNumber: string;
+  ownerFullName: string;
+  legalRepresentativeName: string | null;
+  legalDocumentUrl: string | null;        // Cloudinary URL of uploaded document
+
+  imageUrls: string[];                    // Cloudinary URLs of motel images
+}
+```
+
+The `hasCompleteLegalInfo` boolean on the `Motel` model is computed by the backend and reflects whether all required legal fields are populated.
+
+<Accordion title="What is RUES?">
+  RUES (Registro Único Empresarial y Social) is the Colombian national business registry number issued by the Chamber of Commerce. It is required to legally operate a commercial establishment in Colombia.
+</Accordion>
+
+<Accordion title="What is RNT?">
+  RNT (Registro Nacional de Turismo) is the national tourism registry number issued by Colombia's Ministry of Commerce. All tourism and accommodation providers in Colombia are legally required to maintain an active RNT.
+</Accordion>
+
+## Image Upload (Cloudinary)
+
+Motel and room images are uploaded directly to Cloudinary from the browser using an unsigned upload preset. The JWT token is **never sent** to Cloudinary — the `CloudinaryService` uses Angular's `HttpBackend` to bypass all interceptors:
+
+```typescript
+// CloudinaryService bypasses HTTP interceptors entirely
+constructor(handler: HttpBackend) {
+  this.http = new HttpClient(handler); // No JWT attached
+}
+
+uploadFile(file: File, folderSuffix: string): Observable<string> {
+  const url = `https://api.cloudinary.com/v1_1/${this.cloudName}/image/upload`;
+
+  const body = new FormData();
+  body.append('file', file);
+  body.append('upload_preset', this.uploadPreset);
+  body.append('public_id', `${this.baseFolder}/${folderSuffix}/...`);
+
+  return this.http.post<CloudinaryResponse>(url, body).pipe(
+    map(res => res.secure_url)
+  );
+}
+```
+
+Supported formats: JPEG, PNG, WebP. After upload, the secure `https://` URL is stored in the motel or room record.
+
+**Image roles on motels:**
+
+| Role | Purpose |
+|---|---|
+| `COVER` | Primary image shown on Explore cards |
+| `GALLERY` | Additional images shown in the motel profile gallery |
+
+Owners can set or replace the cover image via `PUT /motels/:id/images/cover` and add gallery images via `POST /motels/:id/images`.
+
+## Editing Motel Information
+
+From the motel profile page, owners can update core details inline:
+
+```typescript
+interface MotelEditForm {
+  description: string;
+  address: string;
+  city: string;
+  phoneNumber: string;
+}
+```
+
+Changes are sent via `PUT /motels/:id`. The edit form is only rendered when `authService.isOwner()` returns `true`.
+
+## API Endpoints (Owner)
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `GET` | `/auth/motels/my-motels` | Fetch only the authenticated owner's motels |
+| `POST` | `/motels` | Create a new motel |
+| `PUT` | `/motels/:id` | Update motel details |
+| `DELETE` | `/motels/:id` | Delete a motel |
+| `PUT` | `/motels/:id/images/cover` | Set the cover image |
+| `POST` | `/motels/:id/images` | Add gallery images |
+| `DELETE` | `/motels/:id/images/:imageId` | Remove a specific image |

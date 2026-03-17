@@ -1,0 +1,142 @@
+---
+title: "Explore Motels"
+description: "Browse, search, and filter motels and rooms across Colombia on the Ubik platform."
+---
+
+The Explore page is the primary discovery surface for clients. It loads all approved motels and available rooms simultaneously, renders them as cards, and plots them on an interactive Leaflet map — all without requiring authentication.
+
+## What Clients See
+
+When a client navigates to `/explore`, the app fetches data in parallel:
+
+```typescript
+forkJoin({
+  rooms: this.roomService.getRooms(),        // GET /rooms
+  motels: this.motelService.getAllMotels(),   // GET /motels (public, no auth)
+  services: this.serviceService.getServices(),
+}).subscribe(({ rooms, motels, services }) => {
+  // Build unified card list
+});
+```
+
+Both **room cards** and **motel cards** are merged into a single list and displayed side-by-side.
+
+<CardGroup cols={2}>
+  <Card title="Room Cards" icon="bed">
+    Show room number, type, price per hour, availability badge, city, address, and the first image from `imageUrls[]`.
+  </Card>
+  <Card title="Motel Cards" icon="building">
+    Show motel name, description, city, address, and the `COVER` image (falls back to first gallery image, then the Ubik logo).
+  </Card>
+</CardGroup>
+
+## Search and Filter
+
+### Global Header Search
+
+Users can search from the top navigation bar by department, city, or free-text query. The search state is carried into the Explore page via `SearchService` and applied automatically on load.
+
+### Filter Modal
+
+Clicking the **Filters** button opens a modal (`FilterModal`) with the following controls:
+
+| Filter | Type | Behavior |
+|---|---|---|
+| Show type | Radio | `all`, `rooms`, or `motels` |
+| Only available | Toggle | Hides unavailable rooms when enabled (default: on) |
+| Price range | Number inputs | Min/max price in COP, applied to rooms only |
+| Room types | Checkboxes | Multi-select from detected types in live data |
+| Department | Dropdown | Loaded from local Colombia GeoJSON |
+| City / Municipality | Dropdown | Populated after department selection |
+| Services | Checkboxes | Filter rooms that include **all** selected services |
+| Sort by price | Radio | Ascending or descending; applies to rooms only |
+
+```typescript
+export interface Filters {
+  priceMin: number | null;
+  priceMax: number | null;
+  roomTypes: string[];
+  cities: string[];
+  department: string[] | null;
+  onlyAvailable: boolean;
+  serviceIds: number[];
+  sortBy: 'priceAsc' | 'priceDesc' | null;
+  showType: 'rooms' | 'motels' | 'all';
+}
+```
+
+### Text Search
+
+The inline search input on the Explore page filters the current result set in real time. The query is normalized (lowercased, accent-stripped) and matched against `motelName + roomType + location + address + description`.
+
+```typescript
+function normalize(str: string): string {
+  return (str ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\./g, '')
+    .trim();
+}
+```
+
+<Note>
+  City matching is intentionally fuzzy. `"Bogotá D.C."` and `"bogota dc"` resolve to the same result.
+</Note>
+
+## Motel Data Model
+
+Each motel card is built from the `Motel` interface:
+
+```typescript
+export interface MotelImage {
+  id: number;
+  url: string;
+  role: 'GALLERY' | 'COVER' | string;
+  sortOrder: number;
+}
+
+export interface Motel {
+  id: number;
+  name: string;
+  address: string;
+  phoneNumber: string;
+  description: string | null;
+  city: string;
+  propertyId: number;
+  dateCreated: string;
+  imageUrls: MotelImage[];       // COVER image shown on card
+  latitude: number | null;       // Used for map pin
+  longitude: number | null;      // Used for map pin
+  approvalStatus: 'PENDING' | 'UNDER_REVIEW' | 'APPROVED' | 'REJECTED';
+  rues: string | null;
+  rnt: string | null;
+  ownerFullName: string;
+  hasCompleteLegalInfo: boolean;
+  rooms?: Room[];
+}
+```
+
+## Navigating to a Motel Profile
+
+Clicking a motel card navigates to `/motelProfile/:id`. The profile page loads the full motel data, all its rooms, and renders a per-room booking calendar.
+
+<Tip>
+  The motel profile is publicly accessible — no login is required to browse rooms or check availability.
+</Tip>
+
+## Map Integration
+
+The Explore page includes a Leaflet map panel (desktop: always visible on the right; mobile: opened as a bottom sheet via the "View Location" button).
+
+- Map pins are rendered for every card that has non-null, non-zero `latitude` and `longitude` values.
+- Clicking a card's location button pans the map to that pin (`flyTo` with zoom 17).
+- On mobile, tapping a map pin from the bottom sheet can launch the payment modal directly.
+
+See [Interactive Maps](/features/maps) for full map implementation details.
+
+## Loading and Error States
+
+- While data loads, a set of **skeleton cards** (`LoadingCard3`) are displayed.
+- If the API call fails, an error banner is shown with a retry option.
+- The default filter has `onlyAvailable: true`, so unavailable rooms are hidden until the user opts in.
